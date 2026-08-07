@@ -310,6 +310,64 @@ button:focus-visible,
   line-height: 1.6;
 }
 
+/* ------------------------------------------------------------------ 使い方タブ */
+
+/* 長いので、タブの見出しを残したまま中身だけを送る */
+.help {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 14px;
+}
+
+.help-text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.help-list {
+  margin: 6px 0 0;
+  padding-left: 1.3em;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.help-list li + li { margin-top: 5px; }
+
+.help-terms,
+.help-keys {
+  display: grid;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.help-terms { gap: 8px; }
+.help-keys { grid-template-columns: auto 1fr; gap: 4px 16px; align-items: baseline; }
+
+.help-terms dt { color: var(--work); }
+.help-terms dd { margin: 0; }
+
+.help-keys dt {
+  color: var(--work);
+  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
+}
+
+.help-keys dd { margin: 0; }
+
+.help-code {
+  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+
+.help-note {
+  margin: 8px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .foot {
   display: flex;
   align-items: center;

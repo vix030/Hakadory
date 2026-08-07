@@ -751,8 +751,9 @@ function setTab(name) {
   for (const button of document.querySelectorAll('button[data-tab]')) {
     button.classList.toggle('is-selected', button.dataset.tab === name);
   }
-  $('page-timer').hidden = name !== 'timer';
-  $('page-settings').hidden = name !== 'settings';
+  for (const page of document.querySelectorAll('.page')) {
+    page.hidden = page.id !== `page-${name}`;
+  }
 }
 
 function bindToggle(id, key, onChange) {
