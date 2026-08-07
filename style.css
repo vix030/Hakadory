@@ -1,0 +1,392 @@
+/* Hakadory (web) - 面や枠は使わず、余白と 1px の直線だけで区切る */
+
+:root,
+:root[data-theme="standard"] {
+  --bg: #34363c;
+  --hover: #404349;
+  --fg: #f3f4f6;
+  --dim: #a9aeb7;
+  --line: #4c5058;
+  --start: #7ed2a0;
+  --pause: #ef978a;
+  --work: #93c1ff;
+  --break: #f7c470;
+  --long: #c3a4ff;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b0c0e;
+  --hover: #191b20;
+  --fg: #ffffff;
+  --dim: #8b909b;
+  --line: #2c2f37;
+  --start: #7ad9a0;
+  --pause: #f09c8e;
+  --work: #96c2ff;
+  --break: #ffc673;
+  --long: #c6a6ff;
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f6f8;
+  --hover: #e6e8ed;
+  --fg: #1b1d22;
+  --dim: #666c78;
+  --line: #d3d7de;
+  --start: #2b8f5d;
+  --pause: #c1503f;
+  --work: #2a6bce;
+  --break: #a56a12;
+  --long: #6f47c7;
+}
+
+* { box-sizing: border-box; }
+
+/* display を持つ要素にも hidden を効かせる */
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Meiryo UI", "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+.clock {
+  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.type-work { color: var(--work); }
+.type-break { color: var(--break); }
+.type-long { color: var(--long); }
+
+/* ------------------------------------------------------------------ 通常表示 */
+
+#full {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 22px env(safe-area-inset-bottom);
+}
+
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.block { padding-top: 14px; }
+
+.block-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 120px;
+}
+
+.rule {
+  height: 1px;
+  margin: 14px 0 0;
+  border: 0;
+  background: var(--line);
+}
+
+.tabs {
+  display: flex;
+  gap: 16px;
+  padding-top: 14px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.row-tight { padding-top: 6px; }
+.row-left { justify-content: flex-start; gap: 18px; }
+.row span { display: inline-flex; align-items: center; gap: 6px; }
+
+.caption {
+  margin: 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.caption-small { font-size: 11px; }
+.pad-left { margin-left: 8px; }
+
+.clock-total { font-size: 42px; line-height: 1.15; padding-top: 2px; }
+.clock-lap { font-size: 32px; line-height: 1.15; padding-top: 2px; }
+.clock-sum { font-size: 15px; padding-top: 2px; }
+
+.sums {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* 通知に気づけるよう数回点滅させる */
+.flash { animation: flash 0.32s steps(1) 4; }
+@keyframes flash { 50% { color: var(--fg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: none; }
+}
+
+/* ------------------------------------------------------------------ 押せる箇所 */
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+.field:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* 主要な操作: 色付きの文字 + 太い下線 */
+.action {
+  padding: 6px 0;
+  border-bottom: 2px solid currentColor;
+  font-size: 15px;
+  text-align: center;
+  width: 100%;
+}
+
+.action-wide { font-size: 17px; }
+.action-start { color: var(--start); }
+.action-pause { color: var(--pause); }
+.action:hover { background: var(--hover); }
+
+.lap-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 10px;
+}
+
+/* 補助的な操作: 通常の文字色 + 細い下線 */
+.text {
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.text + .text { margin-left: 16px; }
+.text:hover { color: var(--work); border-bottom-color: currentColor; }
+
+/* 切替: ●（有効）／○（無効）の印 + 下線 */
+.toggle {
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.toggle::before { content: "○ "; }
+.toggle[aria-pressed="true"] { color: var(--work); }
+.toggle[aria-pressed="true"]::before { content: "● "; }
+.toggle:hover { border-bottom-color: currentColor; }
+
+/* 選択: 選択中のものだけ色付きの下線 */
+.choice {
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  font-size: 13px;
+  padding-bottom: 2px;
+}
+
+.choice.is-selected { color: var(--work); border-bottom-color: var(--work); }
+.choice:hover { color: var(--fg); }
+
+.field {
+  width: 3.4em;
+  padding: 1px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+
+.field-time { width: 4.4em; text-align: center; }
+.field:focus { border-bottom-color: var(--work); }
+
+/* ------------------------------------------------------------------ ラップ一覧 */
+
+.list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+
+.laps {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.laps th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  color: var(--dim);
+  font-family: "Meiryo UI", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: normal;
+  padding: 4px 0;
+}
+
+.laps td { padding: 4px 0; }
+.laps tr:hover td { background: var(--hover); }
+.col-no { width: 2.4em; }
+.col-type { width: 4.5em; text-align: center; }
+.col-num { text-align: right; }
+.laps td.col-no { text-align: right; color: var(--dim); }
+.laps td.col-type { text-align: center; }
+.laps td.col-num { text-align: right; }
+
+/* ------------------------------------------------------------------ 設定タブ */
+
+.minutes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.minutes > span,
+.repeat,
+.days,
+.theme {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.repeat, .days { padding-top: 8px; }
+.theme { padding-top: 14px; gap: 10px; }
+.days #days { display: flex; gap: 12px; margin-left: 4px; }
+
+.day {
+  border-bottom: 1px solid transparent;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.day.is-on { color: var(--work); border-bottom-color: var(--work); }
+.day:hover { color: var(--fg); }
+
+.note {
+  margin: 14px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.keys {
+  color: var(--dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ ミニ表示 */
+
+#mini {
+  background: var(--bg);
+  padding: 6px 10px;
+  min-width: 260px;
+  user-select: none;
+}
+
+.mini-head,
+.mini-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-body { justify-content: flex-start; gap: 6px; padding-top: 2px; }
+.mini-right { display: inline-flex; align-items: center; gap: 8px; }
+#mini-total { font-size: 16px; }
+#mini-lap { font-size: 23px; }
+
+.mini-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.mini-keys .action { font-size: 12px; padding: 3px 0; }
+
+/* ピクチャーインピクチャー側のウィンドウ */
+body.pip {
+  overflow: hidden;
+  display: block;
+}
+
+body.pip #mini { padding: 5px 10px; }
+
+/* 画面内ミニ表示（ピクチャーインピクチャー非対応のとき） */
+body.inline-mini { display: flex; align-items: flex-start; }
+body.inline-mini #full { display: none; }
+
+/* ------------------------------------------------------------------ 通知 */
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: min(90vw, 420px);
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------------ 狭い画面 */
+
+@media (max-width: 380px) {
+  .clock-total { font-size: 34px; }
+  .clock-lap { font-size: 26px; }
+  #full { padding: 0 16px env(safe-area-inset-bottom); }
+}

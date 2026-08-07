@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hakadory</title>
+<meta name="description" content="作業と休憩を区別して記録するストップウォッチ">
+<meta name="color-scheme" content="dark light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 通常表示 ------------------------------------------------------------ -->
+<div id="full">
+  <div class="tabs">
+    <button type="button" class="choice is-selected" data-tab="timer">タイマー</button>
+    <button type="button" class="choice" data-tab="settings">設定</button>
+  </div>
+  <hr class="rule">
+
+  <!-- タイマータブ -->
+  <section id="page-timer" class="page">
+    <div class="block">
+      <p class="caption">総時間</p>
+      <p id="total" class="clock clock-total">0:00:00.00</p>
+    </div>
+
+    <hr class="rule">
+
+    <div class="block">
+      <div class="row">
+        <p id="lap-title" class="caption type-work">作業 ・ 停止中</p>
+        <p id="alert-hint" class="caption caption-small"></p>
+      </div>
+      <p id="lap" class="clock clock-lap type-work">0:00:00.00</p>
+    </div>
+
+    <div class="block sums">
+      <div>
+        <p class="caption caption-small type-work">作業</p>
+        <p id="sum-work" class="clock clock-sum">0:00:00</p>
+      </div>
+      <div>
+        <p class="caption caption-small type-break">休憩（長休憩含む）</p>
+        <p id="sum-break" class="clock clock-sum">0:00:00</p>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <div class="block">
+      <button type="button" id="start" class="action action-start action-wide">開始</button>
+      <div class="lap-buttons">
+        <button type="button" class="action type-work" data-lap="work">作業</button>
+        <button type="button" class="action type-break" data-lap="break">休憩</button>
+        <button type="button" class="action type-long" data-lap="long_break">長休憩</button>
+      </div>
+    </div>
+
+    <div class="block block-list">
+      <div class="row">
+        <p class="caption">ラップ</p>
+        <span>
+          <button type="button" class="text" id="reset">リセット</button>
+          <button type="button" class="text" id="export">.md 書き出し</button>
+        </span>
+      </div>
+      <div class="list-wrap">
+        <table class="laps">
+          <thead>
+            <tr><th class="col-no"></th><th class="col-type">種別</th><th class="col-num">ラップ</th><th class="col-num">通過</th></tr>
+          </thead>
+          <tbody id="lap-rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="block foot">
+      <button type="button" class="text" id="compact">ミニ表示</button>
+      <span class="keys">Space  W  B  L  M</span>
+    </div>
+  </section>
+
+  <!-- 設定タブ -->
+  <section id="page-settings" class="page" hidden>
+    <div class="block">
+      <div class="row">
+        <span>
+          <button type="button" class="toggle" id="alert-enabled">通知音</button>
+          <span class="caption caption-small pad-left">ラップ開始から</span>
+        </span>
+        <button type="button" class="text" id="preview">試聴</button>
+      </div>
+      <div class="minutes">
+        <span><span class="caption caption-small">作業</span><input class="field type-work" id="min-work" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
+        <span><span class="caption caption-small">休憩</span><input class="field type-break" id="min-break" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
+        <span><span class="caption caption-small">長休憩</span><input class="field type-long" id="min-long_break" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
+      </div>
+      <div class="repeat">
+        <button type="button" class="toggle" id="alert-repeat">繰り返す</button>
+        <input class="field" id="min-repeat" inputmode="numeric" size="3">
+        <span class="caption caption-small">分ごとに鳴らす</span>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <div class="block">
+      <div class="row">
+        <span>
+          <button type="button" class="toggle" id="auto-start-enabled">自動開始</button>
+          <input class="field field-time" id="auto-start-time" size="5">
+          <span class="caption caption-small">に作業を開始</span>
+        </span>
+        <span id="auto-start-hint" class="caption caption-small"></span>
+      </div>
+      <div class="row row-tight">
+        <span>
+          <button type="button" class="toggle" id="auto-end-enabled">自動終了</button>
+          <input class="field field-time" id="auto-end-time" size="5">
+          <span class="caption caption-small">に一時停止</span>
+        </span>
+        <span id="auto-end-hint" class="caption caption-small"></span>
+      </div>
+      <div class="days">
+        <span class="caption caption-small">曜日</span>
+        <span id="days"></span>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <div class="block">
+      <div class="row row-left">
+        <button type="button" class="toggle" id="keep-awake">画面を消さない</button>
+        <span id="keep-awake-hint" class="caption caption-small"></span>
+      </div>
+      <div class="theme">
+        <span class="caption caption-small">配色</span>
+        <button type="button" class="choice is-selected" data-theme="standard">標準</button>
+        <button type="button" class="choice" data-theme="dark">ダーク</button>
+        <button type="button" class="choice" data-theme="light">ライト</button>
+      </div>
+      <p class="note">設定と記録はこのブラウザの中だけに保存されます。サーバーへは何も送信しません。</p>
+    </div>
+  </section>
+</div>
+
+<!-- ミニ表示（ピクチャーインピクチャー、または画面内） -------------------- -->
+<div id="mini" hidden>
+  <div class="mini-head">
+    <span id="mini-total" class="clock">0:00:00</span>
+    <span class="mini-right">
+      <span id="mini-hint" class="caption caption-small"></span>
+      <button type="button" class="text" id="mini-back">通常表示</button>
+    </span>
+  </div>
+  <div class="mini-body">
+    <span id="mini-lap" class="clock type-work">0:00:00.00</span>
+    <span id="mini-type" class="caption caption-small type-work">作業</span>
+  </div>
+  <div class="mini-keys">
+    <button type="button" id="mini-start" class="action action-start">開始</button>
+    <button type="button" class="action type-work" data-lap="work">作業</button>
+    <button type="button" class="action type-break" data-lap="break">休憩</button>
+    <button type="button" class="action type-long" data-lap="long_break">長休憩</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
