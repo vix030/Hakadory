@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hakadory</title>
-<meta name="description" content="作業と休憩を区別して記録するストップウォッチ">
+<meta name="description" content="作業と休憩を区別して記録するストップウォッチ式のポモドーロタイマー">
 <meta name="color-scheme" content="dark light">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-32.png" sizes="32x32">
@@ -34,7 +34,7 @@
 
     <div class="block">
       <div class="row">
-        <p id="lap-title" class="caption type-work">作業 ・ 停止中</p>
+        <p id="lap-title" class="caption type-work tappable" role="button" tabindex="0" title="押すと種別を直せます">作業 ・ 停止中</p>
         <p id="alert-hint" class="caption caption-small"></p>
       </div>
       <p id="lap" class="clock clock-lap type-work">0:00:00</p>
@@ -82,7 +82,7 @@
 
     <div class="block foot">
       <button type="button" class="text" id="compact">ミニ表示</button>
-      <span class="keys">Space  W  B  L  M</span>
+      <span class="keys">Space  W  B  L  M  ⌃Z</span>
     </div>
   </section>
 
@@ -169,8 +169,8 @@
     <div class="help">
       <div class="block">
         <p class="caption">これは何か</p>
-        <p class="help-text">作業と休憩を区別して測るストップウォッチです。ラップごとに種別（作業・休憩・長休憩）を持たせ、種別ごとの合計と割合をその場で集計します。</p>
-        <p class="help-text">もとはポモドーロタイマーです。ただ、25 分で必ず区切るのは窮屈なので、区切る場所は自分で決められるようにしました。乗っているときは続ければよく、疲れたら早めに休憩を押せばいい。通知音を鳴らしても、こちらが押すまで計測は続きます。</p>
+        <p class="help-text">作業と休憩を区別して測るストップウォッチ式のポモドーロタイマーです。ラップごとに種別（作業・休憩・長休憩）を持たせ、種別ごとの合計と割合をその場で集計します。</p>
+        <p class="help-text">集中状態を無理に中断せず、ポモドーロテクニックの周期を維持することを目的としています。乗っているときは続ければよく、疲れたら早めに休憩を押せばいい。通知音を鳴らしても、こちらが押すまで計測は続きます。</p>
         <p class="help-text">記録は <code class="help-code">.md</code> に書き出せます。ブラウザの中の記録はリセットや履歴の削除で消えるので、残したい日は書き出しておいてください。</p>
       </div>
 
@@ -183,7 +183,29 @@
           <li>休憩に入るときは「休憩」、戻るときは「作業」を押します。押した時点でそれまでのラップが確定し、新しいラップが始まります。</li>
           <li>数えたくない時間は「一時停止」で止めます（計測中は「開始」が「一時停止」に変わります）。</li>
           <li>終わったら「.md 書き出し」で記録を保存し、「リセット」で次に備えます。</li>
+          <li>押し間違えたら <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で直前の確定を取り消せます。あとから気づいたぶんは「ラップの手直し」を見てください。</li>
         </ol>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block">
+        <p class="caption">ラップの手直し</p>
+        <p class="help-text">押し間違いは、ラップ一覧の行を押すと開く画面で直します。総時間は減らず、時間は結合した相手に移るだけです。</p>
+        <dl class="help-terms">
+          <dt>種別を変える</dt>
+          <dd>そのラップの種別だけを差し替えます。長さは変わりません。</dd>
+          <dt>前のラップと結合</dt>
+          <dd>そのラップを 1 つ上に畳みます。種別と開始時刻は前のラップのものになります。</dd>
+          <dt>次のラップと結合</dt>
+          <dd>そのラップを 1 つ下に畳みます。いちばん下のラップは、進行中のラップの先頭に戻ります。</dd>
+        </dl>
+        <ul class="help-list">
+          <li>押し間違えて押し直したときにできる短いラップは、「次のラップと結合」で消せます。</li>
+          <li>前後が同じ種別のときは、2 回結合すると 3 本が 1 本にまとまります。</li>
+          <li>進行中のラップの種別は、大きい時計の上の見出し（「作業 ・ 計測中」など）を押すと、ラップを切らずに直せます。</li>
+          <li>その画面の「前のラップと結合」は、<kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> と同じで、種別も押す前に戻します。</li>
+        </ul>
       </div>
 
       <hr class="rule">
@@ -212,6 +234,7 @@
           <dt>B</dt><dd>休憩ラップに切り替える</dd>
           <dt>L</dt><dd>長休憩ラップに切り替える</dd>
           <dt>M</dt><dd>ミニ表示にする</dd>
+          <dt>Ctrl + Z</dt><dd>直前のラップ確定を取り消す</dd>
         </dl>
         <p class="help-note">入力欄にカーソルがある間は効きません。また、ブラウザは他のアプリを操作している間のキーを受け取れないため、この画面を選んでいるときだけ効きます。</p>
       </div>
@@ -287,6 +310,21 @@
     <div class="help">
       <div class="block log-entry">
         <div class="log-head">
+          <p class="log-version">v1.2</p>
+          <time class="log-date caption caption-small" datetime="2026-08-09">2026-08-09</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>確定したラップを手直しできるようにしました。一覧の行を押すと、種別の変更と、前後のラップとの結合ができます。</li>
+          <li><span class="log-tag tag-add">追加</span><kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で直前のラップ確定を取り消せるようにしました。</li>
+          <li><span class="log-tag tag-add">追加</span>進行中のラップの種別を、見出しを押してラップを切らずに直せるようにしました。</li>
+          <li><span class="log-tag tag-change">変更</span>「通過」と種別ごとの合計を、そのつどラップから数え直すようにしました。手直ししても積算がずれません。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block log-entry">
+        <div class="log-head">
           <p class="log-version">v1.1</p>
           <time class="log-date caption caption-small" datetime="2026-08-08">2026-08-08</time>
         </div>
@@ -339,6 +377,28 @@
     <button type="button" class="action type-work" data-lap="work">作業</button>
     <button type="button" class="action type-break" data-lap="break">休憩</button>
     <button type="button" class="action type-long" data-lap="long_break">長休憩</button>
+  </div>
+</div>
+
+<!-- ラップの手直し（一覧の行、または進行中の見出しを押すと開く） ---------- -->
+<div id="lap-sheet" class="sheet" hidden>
+  <div class="sheet-back" id="lap-sheet-back"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="lap-sheet-title">
+    <p id="lap-sheet-title" class="caption type-work">1 本目 ・ 作業</p>
+    <p class="sheet-note">種別を変える</p>
+    <div class="lap-buttons">
+      <button type="button" class="action type-work" data-lap-type="work">作業</button>
+      <button type="button" class="action type-break" data-lap-type="break">休憩</button>
+      <button type="button" class="action type-long" data-lap-type="long_break">長休憩</button>
+    </div>
+    <p class="sheet-note" id="merge-note">隣のラップと結合する（総時間は変わりません）</p>
+    <div class="sheet-merge">
+      <button type="button" class="text" id="merge-prev">前のラップと結合</button>
+      <button type="button" class="text" id="merge-next">次のラップと結合</button>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="text" id="lap-sheet-close">閉じる</button>
+    </div>
   </div>
 </div>
 

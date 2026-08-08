@@ -494,6 +494,75 @@ body.inline-mini #full { display: none; }
 
 /* ------------------------------------------------------------------ 通知 */
 
+/* ------------------------------------------------- ラップの手直しシート */
+
+/* 一覧の行と進行中の見出しは押せる（押し間違いを直す入口） */
+.tappable { cursor: pointer; }
+.tappable:hover { border-bottom: 1px solid currentColor; }
+.laps tbody tr { cursor: pointer; }
+.laps tbody tr:focus-visible { outline: 1px solid var(--fg); outline-offset: -1px; }
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet[hidden] { display: none; }
+
+.sheet-back {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+}
+
+.sheet-body {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 16px 18px calc(18px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.sheet-note {
+  color: var(--dim);
+  font-size: 11px;
+  padding-top: 14px;
+}
+
+/* 見出しは .caption の淡色ではなく種別の色にする（どのラップを直しているか示す）。
+ * .caption が .type-* より後ろにあるので、勝てる強さで指定し直す。 */
+.sheet-body .caption.type-work { color: var(--work); }
+.sheet-body .caption.type-break { color: var(--break); }
+.sheet-body .caption.type-long { color: var(--long); }
+
+.sheet-merge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.sheet-merge .text + .text { margin-left: 0; }
+.sheet-merge .text[hidden] { display: none; }
+
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 18px;
+}
+
+.sheet .action:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
 #toast {
   position: fixed;
   left: 50%;

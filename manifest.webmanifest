@@ -1,7 +1,7 @@
 {
   "name": "Hakadory",
   "short_name": "Hakadory",
-  "description": "作業と休憩を区別して記録するストップウォッチ",
+  "description": "作業と休憩を区別して記録するストップウォッチ式のポモドーロタイマー",
   "lang": "ja",
   "dir": "ltr",
   "start_url": "./",

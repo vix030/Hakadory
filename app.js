@@ -204,6 +204,7 @@ function toggleRun() {
 
 /** 現在のラップを確定し、指定種別で新しいラップを開始する。 */
 function lap(type) {
+  closeLapSheet(); // ラップが増減すると、開いているシートが別のラップを指してしまう
   if (!state.running && totalElapsed() === 0) {
     // 未計測なら、押した種別でそのまま計測を開始する
     state.currentType = type;
@@ -220,11 +221,10 @@ function lap(type) {
     state.laps.push({
       type: state.currentType,
       duration,
-      total: totalElapsed(),
       startedAt: state.lapStartedAt,
       endedAt: Date.now(),
     });
-    insertLapRow(state.laps.length, state.laps[state.laps.length - 1]);
+    rebuildLapRows();
   }
 
   state.currentType = type;
@@ -236,11 +236,105 @@ function lap(type) {
   saveSession();
 }
 
+// ------------------------------------------------- ラップの手直し
+
+/** 種別ごとの合計を、確定ラップから数え直す。 */
+function recomputeSums() {
+  state.sums = { work: 0, break: 0, long_break: 0 };
+  for (const entry of state.laps) state.sums[entry.type] += entry.duration;
+}
+
+/** ラップを手直ししたあとの後始末。alert は進行中ラップが動いたとき。 */
+function afterLapEdit(alert) {
+  recomputeSums();
+  rebuildLapRows();
+  if (alert) resetAlert();
+  refresh();
+  saveSession();
+}
+
+/** 確定ラップの種別を変える。時間はいっさい動かさない。 */
+function setLapType(index, type) {
+  if (!LAP_TYPES.includes(type) || !state.laps[index]) return false;
+  if (state.laps[index].type === type) return false;
+  state.laps[index].type = type;
+  afterLapEdit(false);
+  return true;
+}
+
+/** 進行中のラップの種別だけを直す（ラップを切らずに種別を差し替える）。 */
+function setCurrentType(type) {
+  if (!LAP_TYPES.includes(type) || type === state.currentType) return false;
+  state.currentType = type;
+  resetAlert(); // 通知までの分は種別ごとなので張り直す
+  refresh();
+  saveSession();
+  return true;
+}
+
+/** そのラップを指定方向へ畳めるか。末尾は進行中ラップへ畳める。 */
+function canMergeLap(index, direction) {
+  if (!state.laps[index]) return false;
+  return direction === 'prev' ? index > 0 : true;
+}
+
+/** 結合するとどの種別に吸われるかを、メニューに出すための名前。 */
+function mergeTargetLabel(index, direction) {
+  if (direction === 'prev') {
+    return index > 0 ? TYPE_LABEL[state.laps[index - 1].type] : 'なし';
+  }
+  if (state.laps[index + 1]) return TYPE_LABEL[state.laps[index + 1].type];
+  return `進行中・${TYPE_LABEL[state.currentType]}`;
+}
+
+/** 確定ラップを隣のラップへ畳み込む。総時間は変わらない。
+ *
+ * 種別と時刻は畳み込み先に合わせる。末尾のラップを 'next' で畳むと、
+ * 進行中のラップの先頭に戻る（押し間違いで増えた短いラップの掃除）。
+ */
+function mergeLap(index, direction) {
+  if (!canMergeLap(index, direction)) return false;
+  const [entry] = state.laps.splice(index, 1);
+  if (direction === 'prev') {
+    const target = state.laps[index - 1];
+    target.duration += entry.duration;
+    target.endedAt = entry.endedAt;
+    afterLapEdit(false);
+  } else if (state.laps[index]) {
+    const target = state.laps[index];
+    target.duration += entry.duration;
+    target.startedAt = entry.startedAt;
+    afterLapEdit(false);
+  } else {
+    // 進行中のラップへ畳む（種別は進行中のまま）
+    state.lapBase += entry.duration;
+    state.lapStartedAt = entry.startedAt;
+    afterLapEdit(true);
+  }
+  return true;
+}
+
+/** 直前のラップ確定を取り消し、進行中のラップをその続きに戻す。
+ *
+ * mergeLap の 'next' と違い、種別も直前のラップのものに戻す。
+ * 押した直後に「今のは違う」と気づいたときの操作。
+ */
+function undoLap() {
+  const entry = state.laps.pop();
+  if (!entry) return false;
+  state.lapBase += entry.duration;
+  state.lapStartedAt = entry.startedAt;
+  state.currentType = entry.type;
+  afterLapEdit(true);
+  return true;
+}
+
 function reset() {
   if ((totalElapsed() > 0 || state.laps.length) &&
       !window.confirm('計測とラップをすべて消去します。')) {
     return;
   }
+  closeLapSheet();
   state.running = false;
   state.totalBase = 0;
   state.lapBase = 0;
@@ -248,8 +342,8 @@ function reset() {
   state.startedAt = null;
   state.lapStartedAt = null;
   state.laps = [];
-  state.sums = { work: 0, break: 0, long_break: 0 };
-  ui.lapRows.textContent = '';
+  recomputeSums();
+  rebuildLapRows();
   resetAlert();
   refresh();
   saveSession();
@@ -633,18 +727,26 @@ function updateAlertHint() {
 
 // ---------------------------------------------------------------- Markdown 書き出し
 
-/** 確定ラップに、進行中のラップを末尾に足した書き出し用の一覧。 */
+/** 確定ラップに、進行中のラップを末尾に足した書き出し用の一覧。
+ *
+ * 「通過」は保存せず、ここで先頭から積み直す。ラップを手直ししても
+ * 積算がずれないようにするため。
+ */
 function lapRows() {
-  const rows = state.laps.slice();
+  const rows = state.laps.map((entry) => ({ ...entry }));
   const current = lapElapsed();
   if (current > 0) {
     rows.push({
       type: state.currentType,
       duration: current,
-      total: totalElapsed(),
       startedAt: state.lapStartedAt,
       endedAt: null, // 未確定
     });
+  }
+  let total = 0;
+  for (const row of rows) {
+    total += row.duration;
+    row.total = total;
   }
   return rows;
 }
@@ -808,13 +910,15 @@ function setTypeClass(el, type) {
   el.classList.add(TYPE_CLASS[type]);
 }
 
-function insertLapRow(number, entry) {
+function insertLapRow(number, entry, total) {
   const row = document.createElement('tr');
+  row.tabIndex = 0;
+  row.dataset.index = String(number - 1); // 押されたときに laps の位置を引く
   const cells = [
     ['col-no', String(number)],
     ['col-type', TYPE_LABEL[entry.type]],
     ['col-num', formatTime(entry.duration)],
-    ['col-num', formatTime(entry.total)],
+    ['col-num', formatTime(total)],
   ];
   for (const [cls, text] of cells) {
     const cell = document.createElement('td');
@@ -827,9 +931,74 @@ function insertLapRow(number, entry) {
   body.insertBefore(row, body.firstChild); // 新しい順
 }
 
+// ------------------------------------------------- 手直しシート（画面）
+
+let sheetIndex = null; // 開いているラップの位置。null は進行中のラップ
+
+/** 手直しシートを開く。index が null なら進行中のラップを対象にする。 */
+function openLapSheet(index) {
+  if (index !== null && !state.laps[index]) return;
+  sheetIndex = index;
+  renderLapSheet();
+  $('lap-sheet').hidden = false;
+}
+
+function closeLapSheet() {
+  $('lap-sheet').hidden = true;
+  sheetIndex = null;
+}
+
+function renderLapSheet() {
+  const running = sheetIndex === null;
+  const entry = running
+    ? { type: state.currentType, duration: lapElapsed() }
+    : state.laps[sheetIndex];
+  const title = $('lap-sheet-title');
+  // 進行中は数字が動き続けるので、長さは出さない
+  title.textContent = running
+    ? `進行中 ・ ${TYPE_LABEL[entry.type]}`
+    : `${sheetIndex + 1} 本目 ・ ${TYPE_LABEL[entry.type]} ・ ${formatTime(entry.duration)}`;
+  setTypeClass(title, entry.type);
+  for (const button of document.querySelectorAll('button[data-lap-type]')) {
+    button.disabled = button.dataset.lapType === entry.type;
+  }
+
+  const prev = $('merge-prev');
+  const next = $('merge-next');
+  if (running) {
+    // 進行中を前と結合する = 直前の確定を取り消す（種別も前に戻る）
+    const last = state.laps[state.laps.length - 1];
+    prev.hidden = !last;
+    if (last) prev.textContent = `前のラップ（${TYPE_LABEL[last.type]}）と結合`;
+    next.hidden = true;
+  } else {
+    prev.hidden = !canMergeLap(sheetIndex, 'prev');
+    prev.textContent = `前のラップ（${mergeTargetLabel(sheetIndex, 'prev')}）と結合`;
+    next.hidden = false;
+    next.textContent = `次のラップ（${mergeTargetLabel(sheetIndex, 'next')}）と結合`;
+  }
+  // 結合できる相手が居ないときは見出しごと引っ込める
+  $('merge-note').hidden = prev.hidden && next.hidden;
+}
+
+function sheetSetType(type) {
+  if (sheetIndex === null) setCurrentType(type); else setLapType(sheetIndex, type);
+  closeLapSheet();
+}
+
+function sheetMerge(direction) {
+  if (sheetIndex === null) undoLap(); else mergeLap(sheetIndex, direction);
+  closeLapSheet();
+}
+
+/** ラップ一覧を laps から作り直す（通過は毎回積算し直す）。 */
 function rebuildLapRows() {
   ui.lapRows.textContent = '';
-  state.laps.forEach((entry, index) => insertLapRow(index + 1, entry));
+  let total = 0;
+  state.laps.forEach((entry, index) => {
+    total += entry.duration;
+    insertLapRow(index + 1, entry, total);
+  });
 }
 
 /** ラベル・操作の表示を現在の状態に合わせる。 */
@@ -1054,12 +1223,10 @@ function loadSession() {
   state.lapBase = Number(data.lapBase) || 0;
   state.currentType = LAP_TYPES.includes(data.currentType) ? data.currentType : WORK;
   state.laps = Array.isArray(data.laps)
-    ? data.laps.filter((entry) => entry && LAP_TYPES.includes(entry.type))
+    ? data.laps.filter((entry) => entry && LAP_TYPES.includes(entry.type)
+        && Number.isFinite(entry.duration))
     : [];
-  state.sums = { work: 0, break: 0, long_break: 0 };
-  if (data.sums && typeof data.sums === 'object') {
-    for (const type of LAP_TYPES) state.sums[type] = Number(data.sums[type]) || 0;
-  }
+  recomputeSums(); // 保存された合計は当てにせず、ラップから数え直す
   state.startedAt = Number(data.startedAt) || null;
   state.lapStartedAt = Number(data.lapStartedAt) || null;
 
@@ -1189,9 +1356,26 @@ function buildDays() {
 }
 
 function onKeyDown(event) {
-  if (event.ctrlKey || event.altKey || event.metaKey) return;
   const target = event.target;
   if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+
+  // 手直しシートを開いている間は、裏のキー操作を効かせない
+  // （そのままだと W などでラップが確定し、シートが別のラップを指してしまう）
+  if (!$('lap-sheet').hidden) {
+    if (event.key !== 'Escape') return; // 押した先のボタンには任せる
+    event.preventDefault();
+    closeLapSheet();
+    return;
+  }
+
+  // 押し間違いの取り消しだけは修飾キー付き
+  if ((event.ctrlKey || event.metaKey) && !event.altKey
+      && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    undoLap();
+    return;
+  }
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
 
   const actions = {
     ' ': toggleRun,
@@ -1223,6 +1407,33 @@ function init() {
   }
   ui.start.addEventListener('click', toggleRun);
   ui.miniStart.addEventListener('click', toggleRun);
+
+  // 押し間違いの手直し。行と進行中の見出しから同じシートを開く
+  ui.lapRows.addEventListener('click', (event) => {
+    const row = event.target.closest('tr');
+    if (row && row.dataset.index !== undefined) openLapSheet(Number(row.dataset.index));
+  });
+  ui.lapRows.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest('tr');
+    if (!row || row.dataset.index === undefined) return;
+    event.preventDefault();
+    openLapSheet(Number(row.dataset.index));
+  });
+  ui.lapTitle.addEventListener('click', () => openLapSheet(null));
+  ui.lapTitle.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openLapSheet(null);
+  });
+  for (const button of document.querySelectorAll('button[data-lap-type]')) {
+    button.addEventListener('click', () => sheetSetType(button.dataset.lapType));
+  }
+  $('merge-prev').addEventListener('click', () => sheetMerge('prev'));
+  $('merge-next').addEventListener('click', () => sheetMerge('next'));
+  $('lap-sheet-close').addEventListener('click', closeLapSheet);
+  $('lap-sheet-back').addEventListener('click', closeLapSheet);
+
   $('reset').addEventListener('click', reset);
   $('export').addEventListener('click', exportMarkdown);
   $('compact').addEventListener('click', openMini);
