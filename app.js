@@ -4,7 +4,8 @@
  * ブラウザで動かせないもの（グローバルショートカット）を外し、
  * ミニ表示をドキュメントピクチャーインピクチャーに置き換えたもの。
  *
- * データはすべてこのブラウザの localStorage に置く。外部への送信は一切しない。
+ * データはこのブラウザの localStorage に置く（読み込んだ通知音の音声ファイルだけは、
+ * 大きさの都合で同じブラウザの IndexedDB）。外部への送信は一切しない。
  */
 'use strict';
 
@@ -17,6 +18,43 @@ const TYPE_LABEL = { work: '作業', break: '休憩', long_break: '長休憩' };
 const TYPE_CLASS = { work: 'type-work', break: 'type-break', long_break: 'type-long' };
 const DEFAULT_MINUTES = { work: '25', break: '5', long_break: '30' };
 const DEFAULT_REPEAT_MINUTES = '5';
+
+/* 通知音の種類。一度きりの短い音は聞き逃しやすいので、どれもモチーフを間を置いて
+ * 繰り返し、2 秒前後は鳴り続ける（repeats 回 × cycle 秒 ＋ 最後の一音）。
+ *
+ *   motif    モチーフ内の [開始秒, 周波数]
+ *   partials 基音に重ねる [倍率, 音量比（1 が最大）]。多いほど硬く、遠くでも残る
+ *   tone     一音の長さ
+ *   hold     一音のうち、減衰を始めずに同じ大きさで伸ばす割合
+ */
+const SOUNDS = [
+  {
+    id: 'chime', label: 'チャイム', wave: 'sine',
+    motif: [[0, 880], [0.26, 660]], partials: [[1, 1]],
+    tone: 0.42, hold: 0.6, cycle: 0.78, repeats: 3,
+  },
+  {
+    id: 'bell', label: 'ベル', wave: 'sine',
+    motif: [[0, 1046]], partials: [[1, 1], [2.76, 0.4], [5.4, 0.2]],
+    tone: 1.05, hold: 0.05, cycle: 1.05, repeats: 2,
+  },
+  {
+    id: 'beep', label: 'ビープ', wave: 'square',
+    motif: [[0, 1200], [0.2, 1200]], partials: [[1, 0.5]],
+    tone: 0.14, hold: 0.9, cycle: 0.62, repeats: 4,
+  },
+  {
+    id: 'alarm', label: 'アラーム', wave: 'triangle',
+    motif: [[0, 660], [0.17, 990], [0.34, 1320]], partials: [[1, 0.8]],
+    tone: 0.46, hold: 0.7, cycle: 0.7, repeats: 3,
+  },
+];
+
+const DEFAULT_SOUND = 'chime';
+const CUSTOM_SOUND = 'custom';        // 読み込んだ音声ファイルを指す名前
+const CUSTOM_SOUND_MAX = 5 << 20;     // 読み込めるのは 5MB まで
+const CUSTOM_SOUND_LIMIT = 20;        // 長い曲でも 20 秒で止める
+const DEFAULT_VOLUME = 70;            // 音量（0〜100）。50 で以前の版と同じ大きさ
 
 const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日']; // 月曜始まり
 const DEFAULT_AUTO_START_TIME = '09:00';
@@ -110,6 +148,9 @@ const settings = {
   theme: DEFAULT_THEME,
   alertEnabled: true,
   alertRepeat: false,
+  sound: DEFAULT_SOUND,
+  volume: DEFAULT_VOLUME,
+  customSoundName: '', // 読み込んだ音声ファイルの名前（中身は IndexedDB）
   alertMinutes: { ...DEFAULT_MINUTES },
   alertRepeatMinutes: DEFAULT_REPEAT_MINUTES,
   autoStartEnabled: false,
@@ -146,6 +187,7 @@ function start() {
   state.running = true;
   if (state.startedAt === null) state.startedAt = Date.now();
   if (state.lapStartedAt === null) state.lapStartedAt = Date.now();
+  scheduleAlert();
 }
 
 function pause() {
@@ -153,6 +195,7 @@ function pause() {
   state.totalBase += mark - state.totalMark;
   state.lapBase += mark - state.lapMark;
   state.running = false;
+  cancelAlert(); // 止めたあとに鳴らないように
 }
 
 function toggleRun() {
@@ -217,33 +260,279 @@ function reset() {
 // ---------------------------------------------------------------- 通知音
 
 let audioContext = null;
+let masterGain = null;
 
-/** 音は最初の操作より前には出せないので、押されたときに用意する。 */
+/** 設定の音量（0〜100）を実際の増幅率にする。耳に合うよう二乗で効かせる。 */
+function volumeGain() {
+  const value = Number(settings.volume);
+  if (!Number.isFinite(value)) return 1;
+  const clamped = Math.min(Math.max(value, 0), 100);
+  return (clamped / 100) ** 2;
+}
+
+/** 音を出す用意をする。使えない環境なら false。 */
+function openAudio() {
+  if (audioContext === null) {
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return false;
+    audioContext = new Ctor();
+    /* 音量を上げても割れないよう、出口で頭を押さえる。
+     * 倍音を重ねた音は合計が 1 を超えるので、リミッターは音量に関わらず要る。 */
+    const limiter = audioContext.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.1;
+    masterGain = audioContext.createGain();
+    masterGain.connect(limiter).connect(audioContext.destination);
+  }
+  if (audioContext.state === 'suspended') audioContext.resume();
+  masterGain.gain.value = volumeGain();
+  decodeCustomSound(); // 予約して鳴らせるのは展開したあとなので、ここで始めておく
+  return true;
+}
+
+/* 一回分の再生は、部品をまとめて一つの gain につなぐ。鳴らし直すときは、ここを
+ * 絞ってまとめて止める（音を選び直すたびに前の音が重なって鳴るのを防ぐ）。 */
+let voice = null; // 手で鳴らしている音。予約したぶんは alertPlan が持つ
+
+/** 一音鳴らす。すぐ減衰させず、途中まで同じ大きさで伸ばす。 */
+function playTone(target, sound, start, frequency) {
+  for (const [multiple, ratio] of sound.partials) {
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.type = multiple === 1 ? sound.wave : 'sine'; // 倍音はやわらかく重ねる
+    osc.frequency.value = frequency * multiple;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(ratio, start + 0.02);
+    gain.gain.setValueAtTime(ratio, start + sound.tone * sound.hold);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + sound.tone);
+    osc.connect(gain).connect(target.gain);
+    osc.start(start);
+    osc.stop(start + sound.tone + 0.02);
+    target.sources.push(osc);
+  }
+}
+
+/* 選ばれている音を start から鳴らす一式を組む。start はオーディオ側の時計の秒で、
+ * 先の時刻を渡せばそのときに鳴る。鳴らすのはオーディオスレッドなので、タブが裏に
+ * 回って JS のタイマーが間引かれても時刻はずれない。 */
+function makeVoice(start) {
+  const target = { gain: audioContext.createGain(), sources: [] };
+  target.gain.connect(masterGain);
+  if (settings.sound === CUSTOM_SOUND && customBuffer !== null) {
+    const source = audioContext.createBufferSource();
+    source.buffer = customBuffer;
+    source.connect(target.gain);
+    source.start(start);
+    source.stop(start + CUSTOM_SOUND_LIMIT); // 長い曲は途中で切り上げる
+    target.sources.push(source);
+  } else {
+    const sound = currentSound();
+    for (let round = 0; round < sound.repeats; round += 1) {
+      for (const [offset, frequency] of sound.motif) {
+        playTone(target, sound, start + round * sound.cycle + offset, frequency);
+      }
+    }
+  }
+  // 鳴りきったら手を離す（予約したぶんが溜まったままにならないように）
+  target.sources[target.sources.length - 1].onended = () => {
+    target.gain.disconnect();
+    if (voice === target) voice = null;
+  };
+  return target;
+}
+
+/** 鳴っている音を止める。切り際が「ブツッ」とならないよう軽く絞ってから。 */
+function stopVoice(target) {
+  if (target === null || audioContext === null) return;
+  const at = audioContext.currentTime;
+  target.gain.gain.cancelScheduledValues(at);
+  target.gain.gain.setValueAtTime(target.gain.gain.value, at);
+  target.gain.gain.linearRampToValueAtTime(0, at + 0.02);
+  for (const source of target.sources) {
+    try {
+      source.stop(at + 0.03); // まだ鳴り始めていない分は、鳴らずに終わる
+    } catch (error) {
+      // すでに終わっているものは放っておく
+    }
+  }
+}
+
+function stopSound() {
+  stopVoice(voice);
+  voice = null;
+  if (customAudio !== null) customAudio.pause();
+  if (customTimer !== null) {
+    clearTimeout(customTimer);
+    customTimer = null;
+  }
+}
+
+/** 選ばれている組み込みの音。読み込んだ音声を選んでいる場合も既定値を返す。 */
+function currentSound() {
+  return SOUNDS.find((sound) => sound.id === settings.sound)
+    || SOUNDS.find((sound) => sound.id === DEFAULT_SOUND);
+}
+
+/** その場で鳴らす。音は最初の操作より前には出せないので、押されたときに用意する。 */
 function playSound() {
+  stopSound(); // 押し直したぶんが前の音に重ならないように
   try {
-    if (audioContext === null) {
-      const Ctor = window.AudioContext || window.webkitAudioContext;
-      if (!Ctor) return;
-      audioContext = new Ctor();
+    if (!openAudio()) {
+      if (settings.sound === CUSTOM_SOUND) playCustomSound();
+      return;
     }
-    if (audioContext.state === 'suspended') audioContext.resume();
-
-    const at = audioContext.currentTime;
-    for (const [offset, frequency] of [[0, 880], [0.18, 660]]) {
-      const osc = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.0001, at + offset);
-      gain.gain.exponentialRampToValueAtTime(0.25, at + offset + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + offset + 0.16);
-      osc.connect(gain).connect(audioContext.destination);
-      osc.start(at + offset);
-      osc.stop(at + offset + 0.2);
+    // 展開が済むまでは、読み込んだ音声を <audio> のまま鳴らす
+    if (settings.sound === CUSTOM_SOUND && customBuffer === null
+        && playCustomSound()) {
+      return;
     }
+    voice = makeVoice(audioContext.currentTime);
   } catch (error) {
     // 音が出せない環境でも計測は続ける
   }
+}
+
+// ------------------------------------------------ 読み込んだ音声ファイル
+
+/* 音声ファイルは localStorage には入らない大きさになるので IndexedDB に置く。
+ * 名前だけは設定側にも持たせ、読み込みを待たずに画面へ出せるようにする。 */
+const SOUND_DB = 'Hakadory';
+const SOUND_STORE = 'sound';
+const SOUND_KEY = 'custom';
+
+let customAudio = null;   // 読み込み済みの <audio>。未読み込みなら null
+let customBlob = null;    // その実体。展開し直すときに要る
+let customBuffer = null;  // 予約して鳴らせるよう展開したもの。展開前は null
+let decodingBlob = null;  // 展開の最中の実体。二重に展開しないための目印
+let customTimer = null;
+
+function openSoundDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error('IndexedDB がない'));
+      return;
+    }
+    const request = indexedDB.open(SOUND_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(SOUND_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function soundDbRequest(mode, run) {
+  return openSoundDb().then((db) => new Promise((resolve, reject) => {
+    const request = run(db.transaction(SOUND_STORE, mode).objectStore(SOUND_STORE));
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  }));
+}
+
+/** 保存してある音声を <audio> に読み込む。無ければ何もしない。 */
+async function loadCustomSound() {
+  let blob;
+  try {
+    blob = await soundDbRequest('readonly', (store) => store.get(SOUND_KEY));
+  } catch (error) {
+    blob = null; // 使えない環境では組み込みの音だけで動かす
+  }
+  setCustomAudio(blob instanceof Blob ? blob : null);
+  if (!customAudio && settings.sound === CUSTOM_SOUND) settings.sound = DEFAULT_SOUND;
+  if (!customAudio) settings.customSoundName = '';
+  buildSounds();
+}
+
+function setCustomAudio(blob) {
+  if (customAudio !== null) {
+    customAudio.pause();
+    URL.revokeObjectURL(customAudio.src);
+    customAudio = null;
+  }
+  customBlob = null;
+  customBuffer = null;
+  if (blob === null) return;
+  customBlob = blob;
+  customAudio = new Audio(URL.createObjectURL(blob));
+  customAudio.preload = 'auto';
+  customAudio.volume = Math.min(volumeGain(), 1);
+  decodeCustomSound();
+}
+
+/* <audio> は先の時刻を指定して鳴らせないので、通知の予約には使えない。読み込んだ
+ * 音声も展開して波形にしておき、組み込みの音と同じように予約できるようにする。 */
+function decodeCustomSound() {
+  if (customBlob === null || customBuffer !== null || audioContext === null) return;
+  if (decodingBlob === customBlob) return; // 展開の最中
+  const blob = customBlob;
+  decodingBlob = blob;
+  blob.arrayBuffer()
+    .then((data) => audioContext.decodeAudioData(data))
+    .then((buffer) => {
+      if (customBlob !== blob) return; // 待っているあいだに差し替わっていた
+      customBuffer = buffer;
+      resetAlert();                    // 予約できるようになったぶんを渡し直す
+    })
+    .catch(() => {
+      // 展開できない形式でも <audio> でなら鳴らせる（予約はできない）
+    })
+    .then(() => {
+      if (decodingBlob === blob) decodingBlob = null;
+    });
+}
+
+/** 読み込んだ音声を頭から鳴らす。鳴らせなければ false（組み込みの音に落ちる）。 */
+function playCustomSound() {
+  const audio = customAudio; // 止めるころには差し替わっているかもしれない
+  if (audio === null) return false;
+  try {
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = Math.min(volumeGain(), 1);
+    const started = audio.play();
+    if (started && typeof started.catch === 'function') started.catch(() => {});
+    if (customTimer !== null) clearTimeout(customTimer);
+    customTimer = setTimeout(() => audio.pause(), CUSTOM_SOUND_LIMIT * 1000);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function pickCustomSound(file) {
+  if (!file) return;
+  if (file.size > CUSTOM_SOUND_MAX) {
+    toast('音声ファイルは 5MB までです。');
+    return;
+  }
+  try {
+    await soundDbRequest('readwrite', (store) => store.put(file, SOUND_KEY));
+  } catch (error) {
+    toast('この環境では音声ファイルを保存できません。');
+    return;
+  }
+  setCustomAudio(file);
+  settings.sound = CUSTOM_SOUND;
+  settings.customSoundName = file.name;
+  saveSettings();
+  buildSounds();
+  resetAlert();
+  toast(`${file.name} を通知音にしました。`);
+}
+
+async function clearCustomSound() {
+  try {
+    await soundDbRequest('readwrite', (store) => store.delete(SOUND_KEY));
+  } catch (error) {
+    // 消せなくても、この画面からは使わない状態にする
+  }
+  setCustomAudio(null);
+  if (settings.sound === CUSTOM_SOUND) settings.sound = DEFAULT_SOUND;
+  settings.customSoundName = '';
+  saveSettings();
+  buildSounds();
+  resetAlert();
 }
 
 /** 現在の種別に設定された通知間隔（秒）。無効なら null。 */
@@ -263,6 +552,7 @@ function repeatSeconds() {
 
 /** 設定値と現在のラップ経過から、次に鳴らす時刻を決め直す。 */
 function resetAlert() {
+  cancelAlert();
   const step = alertSeconds();
   const elapsed = lapElapsed();
   if (step === null) {
@@ -275,12 +565,53 @@ function resetAlert() {
   } else {
     state.nextAlert = null; // 通知済みのラップでは鳴らさない
   }
+  scheduleAlert();
   updateAlertHint();
+}
+
+/* ブラウザは裏に回ったタブのタイマーを 1 秒に 1 回まで、しばらく経てば 1 分に
+ * 1 回まで間引く。時刻が来ても JS が動かないので、そのままでは表に戻るまで鳴らない。
+ * そこで、鳴らす時刻が近づいたぶんはオーディオ側の時計に先に渡しておく。 */
+const ALERT_AHEAD = 150; // 秒。間引きの幅（1 分）に余裕をみて先に渡す
+let alertPlan = null;    // 渡してある通知音 { elapsed, at, voice }。無ければ null
+
+/** 次の通知が ALERT_AHEAD 以内なら、鳴る時刻を決めて渡しておく。 */
+function scheduleAlert() {
+  if (alertPlan !== null && alertPlan.elapsed === state.nextAlert) return;
+  cancelAlert();
+  if (!state.running || state.nextAlert === null) return;
+  const wait = state.nextAlert - lapElapsed();
+  if (wait > ALERT_AHEAD) return;
+  // 一度も操作していないうちは音を出せない。この場合は表に戻ったときに鳴らす
+  if (audioContext === null || audioContext.state !== 'running') return;
+  // 展開できていない音声ファイルは <audio> でしか鳴らせず、先の時刻を指定できない
+  if (settings.sound === CUSTOM_SOUND && customBuffer === null) return;
+  try {
+    const at = audioContext.currentTime + Math.max(wait, 0);
+    alertPlan = { elapsed: state.nextAlert, at, voice: makeVoice(at) };
+  } catch (error) {
+    alertPlan = null; // 渡せなくても、表に戻ったときに鳴らす道は残る
+  }
+}
+
+/** 渡してある通知音を取り消す。まだ鳴り始めていなければ、鳴らずに終わる。 */
+function cancelAlert() {
+  if (alertPlan === null) return;
+  stopVoice(alertPlan.voice);
+  alertPlan = null;
 }
 
 /** 通知音を鳴らす。計測は止めず、そのまま進み続ける。 */
 function fireAlert() {
-  playSound();
+  /* オーディオ側の時計が渡した時刻を過ぎていれば、もう鳴っている。止めずに
+   * そのまま鳴らせておく。過ぎていなければ（音を止められていた等）ここで鳴らす。 */
+  if (alertPlan !== null && alertPlan.elapsed === state.nextAlert
+      && audioContext !== null && audioContext.currentTime >= alertPlan.at) {
+    alertPlan = null;
+  } else {
+    cancelAlert();
+    playSound();
+  }
   flash();
   resetAlert();
 }
@@ -549,6 +880,7 @@ function tick() {
   if (state.running) {
     updateClocks();
     if (state.nextAlert !== null && lapElapsed() >= state.nextAlert) fireAlert();
+    scheduleAlert(); // 時刻が近づいたぶんを、間引かれても鳴るよう先に渡しておく
   }
 }
 
@@ -671,6 +1003,15 @@ function loadSettings() {
       .filter((index) => Number.isInteger(index) && index >= 0 && index < WEEKDAYS.length);
   }
   if (THEME_NAMES.includes(data.theme)) settings.theme = data.theme;
+  // 読み込んだ音声は、実体が IndexedDB から取れたところで選び直す
+  if (SOUNDS.some((sound) => sound.id === data.sound) || data.sound === CUSTOM_SOUND) {
+    settings.sound = data.sound;
+  }
+  if (typeof data.customSoundName === 'string') {
+    settings.customSoundName = data.customSoundName;
+  }
+  const volume = Number(data.volume);
+  if (Number.isFinite(volume) && volume >= 0 && volume <= 100) settings.volume = volume;
 }
 
 function saveSettings() {
@@ -778,6 +1119,52 @@ function bindField(id, get, set, onChange) {
   });
 }
 
+/** 音量つまみ。動かしている間は鳴っている音にも即あてる。 */
+function bindVolume() {
+  const field = $('volume');
+  const label = $('volume-value');
+  field.value = String(settings.volume);
+  label.textContent = `${settings.volume}%`;
+  field.addEventListener('input', () => {
+    settings.volume = Number(field.value);
+    label.textContent = `${settings.volume}%`;
+    if (masterGain !== null) masterGain.gain.value = volumeGain();
+    if (customAudio !== null) customAudio.volume = Math.min(volumeGain(), 1);
+  });
+  // つまみを離したところで保存し、決めた大きさをその場で確かめられるように鳴らす
+  field.addEventListener('change', () => {
+    saveSettings();
+    playSound();
+  });
+}
+
+/** 通知音の選択肢を並べ直す。読み込んだ音声は、実体があるときだけ出す。 */
+function buildSounds() {
+  const holder = $('sound-choices');
+  const choices = SOUNDS.map((sound) => [sound.id, sound.label]);
+  if (customAudio !== null) {
+    choices.push([CUSTOM_SOUND, settings.customSoundName || '読み込んだ音']);
+  }
+  holder.textContent = '';
+  for (const [id, label] of choices) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'choice';
+    button.classList.toggle('is-selected', settings.sound === id);
+    button.title = label;
+    button.textContent = label;
+    button.addEventListener('click', () => {
+      settings.sound = id;
+      saveSettings();
+      buildSounds();
+      playSound(); // 選んだその場で確かめられるように鳴らす
+      resetAlert(); // 渡してある通知音も選び直した音に替える
+    });
+    holder.appendChild(button);
+  }
+  $('sound-clear').hidden = customAudio === null;
+}
+
 function buildDays() {
   const holder = $('days');
   WEEKDAYS.forEach((name, index) => {
@@ -843,6 +1230,12 @@ function init() {
   $('compact').addEventListener('click', openMini);
   $('mini-back').addEventListener('click', closeMini);
   $('preview').addEventListener('click', playSound);
+  $('sound-pick').addEventListener('click', () => $('sound-file').click());
+  $('sound-file').addEventListener('change', (event) => {
+    pickCustomSound(event.target.files[0]);
+    event.target.value = ''; // 同じファイルをもう一度選べるようにしておく
+  });
+  $('sound-clear').addEventListener('click', clearCustomSound);
 
   bindToggle('alert-enabled', 'alertEnabled', resetAlert);
   bindToggle('alert-repeat', 'alertRepeat', resetAlert);
@@ -869,8 +1262,16 @@ function init() {
     (value) => { settings.autoEndTime = value; },
     resetAutoSchedule);
 
+  bindVolume();
+  buildSounds();
+  loadCustomSound(); // 音声ファイルの読み込みを待たずに画面は出す
   buildDays();
   document.addEventListener('keydown', onKeyDown);
+  /* 音は最初の操作より前には出せない。最初に押されたところで用意しておくと、
+   * 一度も鳴らしていなくても、最初の通知から予約が効く。 */
+  const openOnce = () => { openAudio(); scheduleAlert(); };
+  document.addEventListener('pointerdown', openOnce, { once: true });
+  document.addEventListener('keydown', openOnce, { once: true });
   window.addEventListener('pagehide', () => { saveSettings(); saveSession(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {

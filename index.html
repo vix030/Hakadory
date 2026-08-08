@@ -19,6 +19,7 @@
     <button type="button" class="choice is-selected" data-tab="timer">タイマー</button>
     <button type="button" class="choice" data-tab="settings">設定</button>
     <button type="button" class="choice" data-tab="help">使い方</button>
+    <button type="button" class="choice" data-tab="log">更新履歴</button>
   </div>
   <hr class="rule">
 
@@ -105,6 +106,20 @@
         <input class="field" id="min-repeat" inputmode="numeric" size="3">
         <span class="caption caption-small">分ごとに鳴らす</span>
       </div>
+      <div class="sounds">
+        <span class="caption caption-small">音</span>
+        <span id="sound-choices"></span>
+      </div>
+      <div class="volume">
+        <span class="caption caption-small">音量</span>
+        <input type="range" class="slider" id="volume" min="0" max="100" step="5" aria-label="通知音の音量">
+        <span id="volume-value" class="caption caption-small"></span>
+      </div>
+      <div class="sound-file">
+        <button type="button" class="text" id="sound-pick">音声ファイルを選ぶ</button>
+        <button type="button" class="text" id="sound-clear" hidden>読み込んだ音を外す</button>
+        <input type="file" id="sound-file" accept="audio/*" hidden>
+      </div>
     </div>
 
     <hr class="rule">
@@ -154,7 +169,9 @@
     <div class="help">
       <div class="block">
         <p class="caption">これは何か</p>
-        <p class="help-text">作業と休憩を区別して測るストップウォッチです。ラップごとに種別（作業・休憩・長休憩）を持たせ、種別ごとの合計と割合をその場で集計します。記録は <code class="help-code">.md</code> に書き出せます。</p>
+        <p class="help-text">作業と休憩を区別して測るストップウォッチです。ラップごとに種別（作業・休憩・長休憩）を持たせ、種別ごとの合計と割合をその場で集計します。</p>
+        <p class="help-text">もとはポモドーロタイマーです。ただ、25 分で必ず区切るのは窮屈なので、区切る場所は自分で決められるようにしました。乗っているときは続ければよく、疲れたら早めに休憩を押せばいい。通知音を鳴らしても、こちらが押すまで計測は続きます。</p>
+        <p class="help-text">記録は <code class="help-code">.md</code> に書き出せます。ブラウザの中の記録はリセットや履歴の削除で消えるので、残したい日は書き出しておいてください。</p>
       </div>
 
       <hr class="rule">
@@ -206,8 +223,10 @@
         <ul class="help-list">
           <li>ラップが始まってから指定した分で鳴ります。分は種別ごとに決められます。空欄や 0 のときは鳴りません。</li>
           <li>「繰り返す」を入れると、その後も一定の間隔で鳴り続けます。分を指定しなければ最初と同じ間隔です。</li>
-          <li>ブラウザは、ページを一度も操作していないと音を出せません。先に「試聴」を一度押しておくと確実です。</li>
-          <li>タブが裏にある間は鳴らないことがあります。その場合、表に戻したときに 1 回だけ鳴ります。</li>
+          <li>「音声ファイルを選ぶ」で、手持ちの音（mp3 など）も通知音にできます。5MB まで、長いものは 20 秒で止まります。</li>
+          <li>読み込んだ音声はこのブラウザの中に残るので、次に開いたときもそのまま使えます。「読み込んだ音を外す」で消せます。</li>
+          <li>ブラウザは、ページを一度も操作していないと音を出せません。「開始」を押していれば足ります。</li>
+          <li>他のタブやアプリを見ている間も、時刻どおりに鳴ります。ただし iPhone / iPad の Safari は裏に回ると音そのものを止めるため、表に戻したときに 1 回鳴ります。</li>
         </ul>
       </div>
 
@@ -249,11 +268,54 @@
       <div class="block">
         <p class="caption">保存先とプライバシー</p>
         <ul class="help-list">
-          <li>記録も設定もこのブラウザの中（localStorage）だけに残ります。サーバーへは何も送りません。</li>
+          <li>記録も設定もこのブラウザの中（localStorage）だけに残ります。読み込んだ通知音の音声ファイルだけは、大きさの都合で同じブラウザの IndexedDB に置きます。サーバーへは何も送りません。</li>
           <li>共用の PC では使わないか、使い終わったら「リセット」してブラウザのサイトデータも消してください。</li>
           <li>localStorage はブラウザのデータ削除で消えます。長く残したい記録は <code class="help-code">.md</code> に書き出してください。</li>
         </ul>
       </div>
+    </div>
+  </section>
+
+  <!-- 更新履歴タブ -->
+  <!--
+    新しい版を足すときは、いちばん上の <div class="block log-entry"> を丸ごと複製し、
+    版・日付・項目を書き換えてください。新しいものほど上に置きます。
+    項目の頭に <span class="log-tag tag-add">追加</span> のような印を付けられます。
+    印の種類は tag-add（追加）・tag-fix（修正）・tag-change（変更）の 3 つです。
+  -->
+  <section id="page-log" class="page" hidden>
+    <div class="help">
+      <div class="block log-entry">
+        <div class="log-head">
+          <p class="log-version">v1.1</p>
+          <time class="log-date caption caption-small" datetime="2026-08-08">2026-08-08</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>「使い方」タブを設けました。</li>
+          <li><span class="log-tag tag-add">追加</span>「更新履歴」タブを設けました。</li>
+          <li><span class="log-tag tag-fix">修正</span>他のタブを見ている間、通知音が時刻どおりに鳴らなかったのを直しました。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block log-entry">
+        <div class="log-head">
+          <p class="log-version">v1.0</p>
+          <time class="log-date caption caption-small" datetime="2026-08-08">2026-08-08</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>最初の公開。作業・休憩・長休憩を区別して測るストップウォッチ。</li>
+          <li><span class="log-tag tag-add">追加</span>種別ごとの合計、ラップ一覧、<code class="help-code">.md</code> 書き出し。</li>
+          <li><span class="log-tag tag-add">追加</span>通知音（種別ごとの分・繰り返し・音の選択・音量・音声ファイルの読み込み）。</li>
+          <li><span class="log-tag tag-add">追加</span>曜日と時刻を決めての自動開始・自動終了。</li>
+          <li><span class="log-tag tag-add">追加</span>ミニ表示（ピクチャーインピクチャー）、配色の切り替え、キー操作。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <p class="help-note">日付は年-月-日です。版の番号は、目立つ機能が増えたときに小数点の左を、細かい直しのときは右を上げています。</p>
     </div>
   </section>
 </div>

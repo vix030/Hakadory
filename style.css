@@ -140,8 +140,8 @@ body {
   gap: 12px;
 }
 
-/* 通知に気づけるよう数回点滅させる */
-.flash { animation: flash 0.32s steps(1) 4; }
+/* 通知に気づけるよう数回点滅させる（通知音が鳴っている間ずっと続く回数） */
+.flash { animation: flash 0.32s steps(1) 6; }
 @keyframes flash { 50% { color: var(--fg); } }
 
 @media (prefers-reduced-motion: reduce) {
@@ -284,15 +284,37 @@ button:focus-visible,
 .minutes > span,
 .repeat,
 .days,
+.sounds,
+.volume,
+.sound-file,
 .theme {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.repeat, .days { padding-top: 8px; }
+.repeat, .days, .sounds, .volume { padding-top: 8px; }
 .theme { padding-top: 14px; gap: 10px; }
 .days #days { display: flex; gap: 12px; margin-left: 4px; }
+
+.sounds #sound-choices { display: flex; flex-wrap: wrap; gap: 12px; margin-left: 4px; }
+.sound-file { padding-top: 10px; gap: 16px; }
+
+.slider {
+  width: 140px;
+  margin-left: 4px;
+  accent-color: var(--work);
+}
+
+#volume-value { min-width: 3em; } /* 数字の桁でつまみが動かないように */
+
+/* 読み込んだ音声はファイル名を出すので、長いときは切る */
+.sounds .choice {
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .day {
   border-bottom: 1px solid transparent;
@@ -367,6 +389,52 @@ button:focus-visible,
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* ---------------------------------------------------------------- 更新履歴タブ */
+
+.log-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.log-version {
+  margin: 0;
+  color: var(--work);
+  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
+  font-size: 14px;
+}
+
+.log-date { font-variant-numeric: tabular-nums; }
+
+.log-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.log-list li {
+  display: flex;
+  gap: 8px;
+}
+
+.log-list li + li { margin-top: 5px; }
+
+/* 印の幅をそろえて、本文の頭を縦に並べる */
+.log-tag {
+  flex: none;
+  width: 3.4em;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: inherit;
+  text-align: center;
+}
+
+.tag-add { color: var(--start); }
+.tag-fix { color: var(--pause); }
+.tag-change { color: var(--break); }
 
 .foot {
   display: flex;
