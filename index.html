@@ -27,7 +27,7 @@
   <section id="page-timer" class="page">
     <div class="block">
       <p class="caption">総時間</p>
-      <p id="total" class="clock clock-total">0:00:00.00</p>
+      <p id="total" class="clock clock-total">0:00:00</p>
     </div>
 
     <hr class="rule">
@@ -37,7 +37,7 @@
         <p id="lap-title" class="caption type-work">作業 ・ 停止中</p>
         <p id="alert-hint" class="caption caption-small"></p>
       </div>
-      <p id="lap" class="clock clock-lap type-work">0:00:00.00</p>
+      <p id="lap" class="clock clock-lap type-work">0:00:00</p>
     </div>
 
     <div class="block sums">
@@ -294,6 +294,7 @@
           <li><span class="log-tag tag-add">追加</span>「使い方」タブを設けました。</li>
           <li><span class="log-tag tag-add">追加</span>「更新履歴」タブを設けました。</li>
           <li><span class="log-tag tag-fix">修正</span>他のタブを見ている間、通知音が時刻どおりに鳴らなかったのを直しました。</li>
+          <li><span class="log-tag tag-change">変更</span>時間の表示から小数点以下をなくし、秒までにしました。.md 書き出しの割合も整数にしています。</li>
         </ul>
       </div>
 
@@ -330,7 +331,7 @@
     </span>
   </div>
   <div class="mini-body">
-    <span id="mini-lap" class="clock type-work">0:00:00.00</span>
+    <span id="mini-lap" class="clock type-work">0:00:00</span>
     <span id="mini-type" class="caption caption-small type-work">作業</span>
   </div>
   <div class="mini-keys">

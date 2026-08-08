@@ -75,17 +75,15 @@ const TICK_MS = 50;
 
 // ---------------------------------------------------------------- 小さな道具
 
-/** 秒を H:MM:SS(.cc) の文字列にする。 */
-function formatTime(seconds, centis = true) {
+/** 秒を H:MM:SS の文字列にする（小数点以下は表示しない）。 */
+function formatTime(seconds) {
   if (!(seconds > 0)) seconds = 0;
   const total = Math.floor(seconds);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const secs = total % 60;
   const pad = (n) => String(n).padStart(2, '0');
-  const base = `${hours}:${pad(minutes)}:${pad(secs)}`;
-  if (!centis) return base;
-  return `${base}.${pad(Math.floor((seconds - total) * 100))}`;
+  return `${hours}:${pad(minutes)}:${pad(secs)}`;
 }
 
 /** "9:00" のような文字列を [時, 分] にする。不正なら null。 */
@@ -628,7 +626,7 @@ function flash() {
 function updateAlertHint() {
   const text = state.nextAlert === null
     ? '通知なし'
-    : `通知まで ${formatTime(Math.max(state.nextAlert - lapElapsed(), 0), false)}`;
+    : `通知まで ${formatTime(Math.max(state.nextAlert - lapElapsed(), 0))}`;
   ui.alertHint.textContent = text;
   ui.miniHint.textContent = text;
 }
@@ -678,7 +676,7 @@ function buildMarkdown() {
     lines.push(`- 計測開始: ${dateText(state.startedAt)} ${clockText(state.startedAt)}`);
   }
   lines.push(`- 書き出し: ${dateText(Date.now())} ${clockText(Date.now())}`);
-  lines.push(`- 総時間: ${formatTime(total, false)}`);
+  lines.push(`- 総時間: ${formatTime(total)}`);
   lines.push('', '## 集計', '',
     '| 種別 | 時間 | 回数 | 割合 |',
     '| --- | ---: | ---: | ---: |');
@@ -686,9 +684,9 @@ function buildMarkdown() {
     const seconds = groupSum(group.types);
     const share = total > 0 ? (seconds / total) * 100 : 0;
     const count = group.types.reduce((sum, type) => sum + counts[type], 0);
-    lines.push(`| ${group.text} | ${formatTime(seconds, false)} | ${count} | ${share.toFixed(1)}% |`);
+    lines.push(`| ${group.text} | ${formatTime(seconds)} | ${count} | ${Math.round(share)}% |`);
   }
-  lines.push(`| **合計** | **${formatTime(total, false)}** | **${rows.length}** | **100.0%** |`);
+  lines.push(`| **合計** | **${formatTime(total)}** | **${rows.length}** | **100%** |`);
 
   lines.push('', '## ラップ', '',
     '| # | 種別 | ラップ | 通過 | 開始 | 終了 |',
@@ -696,8 +694,8 @@ function buildMarkdown() {
   if (!rows.length) lines.push('| - | - | - | - | - | - |');
   rows.forEach((row, index) => {
     const number = row.endedAt ? String(index + 1) : `${index + 1}（進行中）`;
-    lines.push(`| ${number} | ${TYPE_LABEL[row.type]} | ${formatTime(row.duration, false)}`
-      + ` | ${formatTime(row.total, false)} | ${clockText(row.startedAt)}`
+    lines.push(`| ${number} | ${TYPE_LABEL[row.type]} | ${formatTime(row.duration)}`
+      + ` | ${formatTime(row.total)} | ${clockText(row.startedAt)}`
       + ` | ${clockText(row.endedAt)} |`);
   });
   lines.push('');
@@ -816,7 +814,7 @@ function insertLapRow(number, entry) {
     ['col-no', String(number)],
     ['col-type', TYPE_LABEL[entry.type]],
     ['col-num', formatTime(entry.duration)],
-    ['col-num', formatTime(entry.total, false)],
+    ['col-num', formatTime(entry.total)],
   ];
   for (const [cls, text] of cells) {
     const cell = document.createElement('td');
@@ -865,10 +863,10 @@ function updateClocks() {
   const current = lapElapsed();
   ui.total.textContent = formatTime(total);
   ui.lap.textContent = formatTime(current);
-  ui.miniTotal.textContent = formatTime(total, false);
+  ui.miniTotal.textContent = formatTime(total);
   ui.miniLap.textContent = formatTime(current);
   for (const group of SUMMARY_GROUPS) {
-    ui[group.ref].textContent = formatTime(groupSum(group.types), false);
+    ui[group.ref].textContent = formatTime(groupSum(group.types));
   }
   updateAlertHint();
 }
