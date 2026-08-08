@@ -554,8 +554,16 @@ body.inline-mini #full { display: none; }
 
 .sheet-foot {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   padding-top: 18px;
+}
+
+.sheet-history .text:disabled {
+  color: var(--dim);
+  border-bottom-color: transparent;
+  cursor: default;
 }
 
 .sheet .action:disabled {

@@ -18,6 +18,7 @@ const TYPE_LABEL = { work: '作業', break: '休憩', long_break: '長休憩' };
 const TYPE_CLASS = { work: 'type-work', break: 'type-break', long_break: 'type-long' };
 const DEFAULT_MINUTES = { work: '25', break: '5', long_break: '30' };
 const DEFAULT_REPEAT_MINUTES = '5';
+const UNDO_LIMIT = 50; // 「元に戻す」で遡れる手数
 
 /* 通知音の種類。一度きりの短い音は聞き逃しやすいので、どれもモチーフを間を置いて
  * 繰り返し、2 秒前後は鳴り続ける（repeats 回 × cycle 秒 ＋ 最後の一音）。
@@ -205,6 +206,7 @@ function toggleRun() {
 /** 現在のラップを確定し、指定種別で新しいラップを開始する。 */
 function lap(type) {
   closeLapSheet(); // ラップが増減すると、開いているシートが別のラップを指してしまう
+  pushUndo();
   if (!state.running && totalElapsed() === 0) {
     // 未計測なら、押した種別でそのまま計測を開始する
     state.currentType = type;
@@ -257,6 +259,7 @@ function afterLapEdit(alert) {
 function setLapType(index, type) {
   if (!LAP_TYPES.includes(type) || !state.laps[index]) return false;
   if (state.laps[index].type === type) return false;
+  pushUndo();
   state.laps[index].type = type;
   afterLapEdit(false);
   return true;
@@ -265,6 +268,7 @@ function setLapType(index, type) {
 /** 進行中のラップの種別だけを直す（ラップを切らずに種別を差し替える）。 */
 function setCurrentType(type) {
   if (!LAP_TYPES.includes(type) || type === state.currentType) return false;
+  pushUndo();
   state.currentType = type;
   resetAlert(); // 通知までの分は種別ごとなので張り直す
   refresh();
@@ -294,6 +298,7 @@ function mergeTargetLabel(index, direction) {
  */
 function mergeLap(index, direction) {
   if (!canMergeLap(index, direction)) return false;
+  pushUndo();
   const [entry] = state.laps.splice(index, 1);
   if (direction === 'prev') {
     const target = state.laps[index - 1];
@@ -314,18 +319,76 @@ function mergeLap(index, direction) {
   return true;
 }
 
-/** 直前のラップ確定を取り消し、進行中のラップをその続きに戻す。
+/** 進行中のラップを直前の確定ラップに畳む（種別も前のものに戻す）。
  *
- * mergeLap の 'next' と違い、種別も直前のラップのものに戻す。
+ * mergeLap の 'next' と向きが逆で、こちらは種別を畳み込む側に合わせる。
  * 押した直後に「今のは違う」と気づいたときの操作。
  */
-function undoLap() {
+function mergeCurrentIntoPrev() {
+  if (!state.laps.length) return false;
+  pushUndo();
   const entry = state.laps.pop();
-  if (!entry) return false;
   state.lapBase += entry.duration;
   state.lapStartedAt = entry.startedAt;
   state.currentType = entry.type;
   afterLapEdit(true);
+  return true;
+}
+
+// ------------------------------------------------- 元に戻す / やり直す
+
+const undoStack = [];
+const redoStack = [];
+
+/** やり直しに要る分だけの控え。走っている時計そのものは含めない。 */
+function snapshot() {
+  return {
+    laps: state.laps.map((entry) => ({ ...entry })),
+    currentType: state.currentType,
+    lapStartedAt: state.lapStartedAt,
+  };
+}
+
+/** 手を加える前に今の状態を控える。やり直しの列はここで捨てる。 */
+function pushUndo() {
+  undoStack.push(snapshot());
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack.length = 0;
+}
+
+/** 控えを戻す。
+ *
+ * 確定ラップの合計が変わったぶんは進行中ラップで相殺する。こうすると
+ * 総時間も、控えてからここまでに経った時間も失われない。
+ */
+function restore(shot) {
+  const before = state.laps.reduce((sum, entry) => sum + entry.duration, 0);
+  const after = shot.laps.reduce((sum, entry) => sum + entry.duration, 0);
+  state.laps = shot.laps.map((entry) => ({ ...entry }));
+  state.currentType = shot.currentType;
+  state.lapStartedAt = shot.lapStartedAt;
+  state.lapBase += before - after;
+  afterLapEdit(true);
+}
+
+const canUndo = () => undoStack.length > 0;
+const canRedo = () => redoStack.length > 0;
+
+/** 直前のラップ操作を取り消す（計測そのものは止めも進めもしない）。 */
+function undo() {
+  if (!undoStack.length) return false;
+  const shot = undoStack.pop();
+  redoStack.push(snapshot());
+  restore(shot);
+  return true;
+}
+
+/** 取り消した操作をやり直す。 */
+function redo() {
+  if (!redoStack.length) return false;
+  const shot = redoStack.pop();
+  undoStack.push(snapshot());
+  restore(shot);
   return true;
 }
 
@@ -342,6 +405,9 @@ function reset() {
   state.startedAt = null;
   state.lapStartedAt = null;
   state.laps = [];
+  // 総時間や開始時刻までは控えていないので、リセットは戻せない
+  undoStack.length = 0;
+  redoStack.length = 0;
   recomputeSums();
   rebuildLapRows();
   resetAlert();
@@ -979,6 +1045,10 @@ function renderLapSheet() {
   }
   // 結合できる相手が居ないときは見出しごと引っ込める
   $('merge-note').hidden = prev.hidden && next.hidden;
+
+  // 画面から元に戻せるようにする（スマートフォンには Ctrl+Z が無い）
+  $('undo').disabled = !canUndo();
+  $('redo').disabled = !canRedo();
 }
 
 function sheetSetType(type) {
@@ -987,7 +1057,13 @@ function sheetSetType(type) {
 }
 
 function sheetMerge(direction) {
-  if (sheetIndex === null) undoLap(); else mergeLap(sheetIndex, direction);
+  if (sheetIndex === null) mergeCurrentIntoPrev();
+  else mergeLap(sheetIndex, direction);
+  closeLapSheet();
+}
+
+function sheetHistory(action) {
+  action();
   closeLapSheet();
 }
 
@@ -1368,12 +1444,15 @@ function onKeyDown(event) {
     return;
   }
 
-  // 押し間違いの取り消しだけは修飾キー付き
-  if ((event.ctrlKey || event.metaKey) && !event.altKey
-      && event.key.toLowerCase() === 'z') {
-    event.preventDefault();
-    undoLap();
-    return;
+  // 元に戻す / やり直すだけは修飾キー付き
+  if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+    const pressed = event.key.toLowerCase();
+    if (pressed === 'z' || pressed === 'y') {
+      event.preventDefault();
+      // Ctrl+Shift+Z も Ctrl+Y と同じ「やり直す」
+      if (pressed === 'y' || event.shiftKey) redo(); else undo();
+      return;
+    }
   }
   if (event.ctrlKey || event.altKey || event.metaKey) return;
 
@@ -1431,6 +1510,8 @@ function init() {
   }
   $('merge-prev').addEventListener('click', () => sheetMerge('prev'));
   $('merge-next').addEventListener('click', () => sheetMerge('next'));
+  $('undo').addEventListener('click', () => sheetHistory(undo));
+  $('redo').addEventListener('click', () => sheetHistory(redo));
   $('lap-sheet-close').addEventListener('click', closeLapSheet);
   $('lap-sheet-back').addEventListener('click', closeLapSheet);
 
