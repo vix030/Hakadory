@@ -68,6 +68,11 @@ const SUMMARY_GROUPS = [
   { text: '休憩（長休憩含む）', types: [BREAK, LONG_BREAK], ref: 'sumBreak' },
 ];
 
+/* 要望・不具合の報告先（Google フォームの回答 URL）。ここを埋めると、使い方タブと
+ * 設定タブにリンクが出る。空のままなら、行き先のないリンクは出さない。
+ * 送信はフォーム側で完結するので、このアプリから外部へ出るものは何もない。 */
+const FEEDBACK_URL = 'https://forms.gle/g7pt1QbgeLv2eCLP6';
+
 const THEME_NAMES = ['standard', 'dark', 'light'];
 const DEFAULT_THEME = 'standard';
 const SETTINGS_KEY = 'Hakadory.settings';
@@ -1338,6 +1343,13 @@ function setTab(name) {
   }
 }
 
+/** 報告リンクは、行き先が決まっているときだけ見せる。 */
+function applyFeedbackLinks() {
+  const url = FEEDBACK_URL.trim();
+  for (const link of document.querySelectorAll('a[data-feedback]')) link.href = url;
+  for (const area of document.querySelectorAll('[data-feedback-area]')) area.hidden = !url;
+}
+
 function bindToggle(id, key, onChange) {
   const button = $(id);
   const render = () => button.setAttribute('aria-pressed', String(settings[key]));
@@ -1552,6 +1564,7 @@ function init() {
     (value) => { settings.autoEndTime = value; },
     resetAutoSchedule);
 
+  applyFeedbackLinks();
   bindVolume();
   buildSounds();
   loadCustomSound(); // 音声ファイルの読み込みを待たずに画面は出す

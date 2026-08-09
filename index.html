@@ -161,6 +161,8 @@
         <button type="button" class="choice" data-theme="light">ライト</button>
       </div>
       <p class="note">設定と記録はこのブラウザの中だけに保存されます。サーバーへは何も送信しません。</p>
+      <!-- 報告先（app.js の FEEDBACK_URL）が空の間は隠れる -->
+      <p class="note" data-feedback-area hidden>要望・不具合は<a class="link" data-feedback target="_blank" rel="noopener">報告フォーム</a>へ。別のタブで開きます。</p>
     </div>
   </section>
 
@@ -309,6 +311,18 @@
           <li>localStorage はブラウザのデータ削除で消えます。長く残したい記録は <code class="help-code">.md</code> に書き出してください。</li>
         </ul>
       </div>
+
+      <!-- 報告先（app.js の FEEDBACK_URL）が空の間は、区切り線ごと隠れる -->
+      <div data-feedback-area hidden>
+        <hr class="rule">
+
+        <div class="block">
+          <p class="caption">要望・不具合の報告</p>
+          <p class="help-text">こうしてほしい、ここが動かない、という話は<a class="link" data-feedback target="_blank" rel="noopener">報告フォーム</a>から送れます。別のタブで開きます。アカウントや名前は要りません。</p>
+          <p class="help-text">動かないときは、端末とブラウザ（例: iPhone の Safari、Windows の Chrome）と、どう操作したら起きたかを添えてもらえると直しやすいです。</p>
+          <p class="help-note">送られるのはフォームに書いた内容だけです。このアプリの記録や設定が自動で送られることはありません。</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -321,6 +335,18 @@
   -->
   <section id="page-log" class="page" hidden>
     <div class="help">
+      <div class="block log-entry">
+        <div class="log-head">
+          <p class="log-version">v1.3</p>
+          <time class="log-date caption caption-small" datetime="2026-08-10">2026-08-10</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>要望・不具合の報告フォームへのリンクを、「使い方」タブと「設定」タブに置きました。アカウントは要りません。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
       <div class="block log-entry">
         <div class="log-head">
           <p class="log-version">v1.2</p>
