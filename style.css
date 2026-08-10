@@ -244,6 +244,18 @@ a:focus-visible,
 .field-time { width: 4.4em; text-align: center; }
 .field:focus { border-bottom-color: var(--work); }
 
+/* メモは長さが決まらないので、余った幅をぜんぶ使う */
+.field-note { flex: 1; width: auto; min-width: 0; text-align: left; }
+.field-note::placeholder { color: var(--dim); }
+
+/* 進行中のラップに添えるメモ（大きい時計の下） */
+.lap-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+}
+
 /* ------------------------------------------------------------------ ラップ一覧 */
 
 .list-wrap {
@@ -256,6 +268,8 @@ a:focus-visible,
 
 .laps {
   width: 100%;
+  /* 時間の列は幅を決め、余りをメモ列に回す（長いメモで表が伸びないように） */
+  table-layout: fixed;
   border-collapse: collapse;
   font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
   font-variant-numeric: tabular-nums;
@@ -277,10 +291,23 @@ a:focus-visible,
 .laps tr:hover td { background: var(--hover); }
 .col-no { width: 2.4em; }
 .col-type { width: 4.5em; text-align: center; }
-.col-num { text-align: right; }
+.col-num { width: 5.4em; text-align: right; }
+.col-note { text-align: left; }
 .laps td.col-no { text-align: right; color: var(--dim); }
 .laps td.col-type { text-align: center; }
 .laps td.col-num { text-align: right; }
+
+/* メモは日本語の文章なので本文の書体で出し、入りきらない分は末尾を省く
+ * （全文は行にカーソルを載せると出る）。時間の列と地続きに見えないよう頭を空ける */
+.laps th.col-note { padding-left: 10px; }
+
+.laps td.col-note {
+  padding-left: 10px;
+  font-family: "Meiryo UI", "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ------------------------------------------------------------------ 設定タブ */
 
@@ -425,17 +452,20 @@ a:focus-visible,
   line-height: 1.75;
 }
 
+/* 2 行目以降を本文の頭にそろえる（ぶら下げ）。flex で並べると、文中の
+ * <kbd> や <code> がそれぞれ別の項目になって行の折り返しが崩れる */
 .log-list li {
-  display: flex;
-  gap: 8px;
+  padding-left: 3.3em;  /* 印の幅（3.9em × 11px）と同じ幅を空ける */
+  text-indent: -3.3em;
 }
 
 .log-list li + li { margin-top: 5px; }
 
 /* 印の幅をそろえて、本文の頭を縦に並べる */
 .log-tag {
-  flex: none;
-  width: 3.4em;
+  display: inline-block;
+  width: 3.9em;   /* 印の左右に空きを持たせ、本文の頭をそろえる */
+  text-indent: 0; /* ぶら下げ（親の負の字下げ）は受け継がない */
   color: var(--dim);
   font-size: 11px;
   line-height: inherit;
@@ -550,6 +580,14 @@ body.inline-mini #full { display: none; }
 .sheet-body .caption.type-work { color: var(--work); }
 .sheet-body .caption.type-break { color: var(--break); }
 .sheet-body .caption.type-long { color: var(--long); }
+
+/* シートの中のメモ入力欄（確定したラップを直すとき） */
+.sheet-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+}
 
 .sheet-merge {
   display: flex;

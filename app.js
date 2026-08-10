@@ -92,6 +92,14 @@ function formatTime(seconds) {
   return `${hours}:${pad(minutes)}:${pad(secs)}`;
 }
 
+/** ラップを結合したときに、両方のメモを残す。 */
+function joinNotes(first, second) {
+  return [first, second]
+    .map((text) => String(text ?? '').trim())
+    .filter((text) => text !== '')
+    .join(' / ');
+}
+
 /** "9:00" のような文字列を [時, 分] にする。不正なら null。 */
 function parseTimeOfDay(text) {
   const parts = String(text ?? '').trim().split(':');
@@ -119,7 +127,7 @@ const now = () => Date.now() / 1000;
  * 更新のたびに使う部品は最初に捕まえておく。 */
 const ui = {};
 const UI_IDS = [
-  'total', 'lap', 'lap-title', 'alert-hint', 'sum-work', 'sum-break',
+  'total', 'lap', 'lap-title', 'lap-note', 'alert-hint', 'sum-work', 'sum-break',
   'start', 'lap-rows', 'auto-start-hint', 'auto-end-hint', 'keep-awake-hint',
   'toast', 'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
 ];
@@ -139,6 +147,7 @@ const state = {
   lapBase: 0,     // 現在ラップの停止中までの経過
   lapMark: 0,
   currentType: WORK,
+  lapNote: '',                                // 進行中のラップに添えるメモ
   laps: [],                                   // 確定したラップ
   sums: { work: 0, break: 0, long_break: 0 }, // 確定ラップだけの種別合計
   nextAlert: null,                            // 次に鳴らすラップ内経過秒
@@ -230,6 +239,7 @@ function lap(type) {
       duration,
       startedAt: state.lapStartedAt,
       endedAt: Date.now(),
+      note: state.lapNote.trim(),
     });
     rebuildLapRows();
   }
@@ -238,6 +248,7 @@ function lap(type) {
   state.lapBase = 0;
   state.lapMark = now();
   state.lapStartedAt = Date.now();
+  state.lapNote = ''; // メモは確定したラップに残し、次はまっさらから
   resetAlert();
   refresh();
   saveSession();
@@ -266,6 +277,17 @@ function setLapType(index, type) {
   if (state.laps[index].type === type) return false;
   pushUndo();
   state.laps[index].type = type;
+  afterLapEdit(false);
+  return true;
+}
+
+/** 確定ラップのメモを書き換える。時間や種別には触らない。 */
+function setLapNote(index, text) {
+  if (!state.laps[index]) return false;
+  const note = String(text ?? '').trim();
+  if ((state.laps[index].note ?? '') === note) return false;
+  pushUndo();
+  state.laps[index].note = note;
   afterLapEdit(false);
   return true;
 }
@@ -309,16 +331,19 @@ function mergeLap(index, direction) {
     const target = state.laps[index - 1];
     target.duration += entry.duration;
     target.endedAt = entry.endedAt;
+    target.note = joinNotes(target.note, entry.note); // メモは捨てず、時系列につなぐ
     afterLapEdit(false);
   } else if (state.laps[index]) {
     const target = state.laps[index];
     target.duration += entry.duration;
     target.startedAt = entry.startedAt;
+    target.note = joinNotes(entry.note, target.note);
     afterLapEdit(false);
   } else {
     // 進行中のラップへ畳む（種別は進行中のまま）
     state.lapBase += entry.duration;
     state.lapStartedAt = entry.startedAt;
+    state.lapNote = joinNotes(entry.note, state.lapNote);
     afterLapEdit(true);
   }
   return true;
@@ -336,6 +361,7 @@ function mergeCurrentIntoPrev() {
   state.lapBase += entry.duration;
   state.lapStartedAt = entry.startedAt;
   state.currentType = entry.type;
+  state.lapNote = joinNotes(entry.note, state.lapNote);
   afterLapEdit(true);
   return true;
 }
@@ -350,6 +376,7 @@ function snapshot() {
   return {
     laps: state.laps.map((entry) => ({ ...entry })),
     currentType: state.currentType,
+    lapNote: state.lapNote, // メモの編集も結合も、これで戻せる
     lapStartedAt: state.lapStartedAt,
   };
 }
@@ -371,6 +398,7 @@ function restore(shot) {
   const after = shot.laps.reduce((sum, entry) => sum + entry.duration, 0);
   state.laps = shot.laps.map((entry) => ({ ...entry }));
   state.currentType = shot.currentType;
+  state.lapNote = shot.lapNote ?? '';
   state.lapStartedAt = shot.lapStartedAt;
   state.lapBase += before - after;
   afterLapEdit(true);
@@ -409,6 +437,7 @@ function reset() {
   state.currentType = WORK;
   state.startedAt = null;
   state.lapStartedAt = null;
+  state.lapNote = '';
   state.laps = [];
   // 総時間や開始時刻までは控えていないので、リセットは戻せない
   undoStack.length = 0;
@@ -812,6 +841,7 @@ function lapRows() {
       duration: current,
       startedAt: state.lapStartedAt,
       endedAt: null, // 未確定
+      note: state.lapNote.trim(),
     });
   }
   let total = 0;
@@ -862,14 +892,16 @@ function buildMarkdown() {
   lines.push(`| **合計** | **${formatTime(total)}** | **${rows.length}** | **100%** |`);
 
   lines.push('', '## ラップ', '',
-    '| # | 種別 | ラップ | 通過 | 開始 | 終了 |',
-    '| ---: | --- | ---: | ---: | --- | --- |');
-  if (!rows.length) lines.push('| - | - | - | - | - | - |');
+    '| # | 種別 | ラップ | 通過 | 開始 | 終了 | メモ |',
+    '| ---: | --- | ---: | ---: | --- | --- | --- |');
+  if (!rows.length) lines.push('| - | - | - | - | - | - | - |');
   rows.forEach((row, index) => {
     const number = row.endedAt ? String(index + 1) : `${index + 1}（進行中）`;
+    // 表の区切りと衝突しないよう、メモの縦棒だけ逃がす
+    const note = String(row.note ?? '').replace(/\|/g, '\\|');
     lines.push(`| ${number} | ${TYPE_LABEL[row.type]} | ${formatTime(row.duration)}`
       + ` | ${formatTime(row.total)} | ${clockText(row.startedAt)}`
-      + ` | ${clockText(row.endedAt)} |`);
+      + ` | ${clockText(row.endedAt)} | ${note} |`);
   });
   lines.push('');
   return lines.join('\n');
@@ -985,16 +1017,20 @@ function insertLapRow(number, entry, total) {
   const row = document.createElement('tr');
   row.tabIndex = 0;
   row.dataset.index = String(number - 1); // 押されたときに laps の位置を引く
+  const note = entry.note ?? '';
   const cells = [
     ['col-no', String(number)],
     ['col-type', TYPE_LABEL[entry.type]],
     ['col-num', formatTime(entry.duration)],
     ['col-num', formatTime(total)],
+    ['col-note', note],
   ];
   for (const [cls, text] of cells) {
     const cell = document.createElement('td');
     cell.className = cls;
     cell.textContent = text;
+    // メモ列は幅で切るので、全文はカーソルを載せたときに出す
+    if (cls === 'col-note' && text !== '') cell.title = text;
     row.appendChild(cell);
   }
   setTypeClass(row, entry.type);
@@ -1034,6 +1070,11 @@ function renderLapSheet() {
     button.disabled = button.dataset.lapType === entry.type;
   }
 
+  /* 進行中のラップのメモは大きい時計の下に入力欄があるので、シートには出さない
+   * （同じものが 2 か所にあると、どちらが効くのか分からなくなる）。 */
+  $('note-row').hidden = running;
+  if (!running) $('note-edit').value = entry.note ?? '';
+
   const prev = $('merge-prev');
   const next = $('merge-next');
   if (running) {
@@ -1056,17 +1097,37 @@ function renderLapSheet() {
   $('redo').disabled = !canRedo();
 }
 
+/** シートで書いたメモを、対象の確定ラップへ書き戻す。
+ *
+ * 種別の変更や結合の前にも呼ぶ。書いたものが黙って消えないようにするため
+ * （結合は位置がずれるので、必ず先に書き戻す）。
+ */
+function commitSheetNote() {
+  if (sheetIndex === null) return;
+  setLapNote(sheetIndex, $('note-edit').value);
+}
+
 function sheetSetType(type) {
+  commitSheetNote();
   if (sheetIndex === null) setCurrentType(type); else setLapType(sheetIndex, type);
   closeLapSheet();
 }
 
 function sheetMerge(direction) {
+  commitSheetNote();
   if (sheetIndex === null) mergeCurrentIntoPrev();
   else mergeLap(sheetIndex, direction);
   closeLapSheet();
 }
 
+/** メモを書き戻してシートを閉じる（閉じる操作はどれもこれを通す）。 */
+function sheetClose() {
+  commitSheetNote();
+  closeLapSheet();
+}
+
+/* 元に戻す / やり直すは、シートに書きかけのメモを書き戻さない。
+ * 書き戻すと、戻したはずのメモをその場で上書きしてしまう。 */
 function sheetHistory(action) {
   action();
   closeLapSheet();
@@ -1096,6 +1157,10 @@ function refresh() {
   const miniType = ui.miniType;
   miniType.textContent = label;
   setTypeClass(miniType, type);
+
+  // 結合や「元に戻す」でメモが変わるので、入力欄を state に合わせ直す
+  // （同じ文字列のときは触らない。書いている途中のカーソルを飛ばさないため）
+  if (ui.lapNote.value !== state.lapNote) ui.lapNote.value = state.lapNote;
 
   const text = running ? '一時停止' : (totalElapsed() > 0 ? '再開' : '開始');
   for (const button of [ui.start, ui.miniStart]) {
@@ -1281,6 +1346,7 @@ function saveSession() {
       lapBase: state.lapBase,
       runningSince: state.running ? Date.now() : null,
       currentType: state.currentType,
+      lapNote: state.lapNote,
       laps: state.laps,
       sums: state.sums,
       startedAt: state.startedAt,
@@ -1303,9 +1369,12 @@ function loadSession() {
   state.totalBase = Number(data.totalBase) || 0;
   state.lapBase = Number(data.lapBase) || 0;
   state.currentType = LAP_TYPES.includes(data.currentType) ? data.currentType : WORK;
+  state.lapNote = typeof data.lapNote === 'string' ? data.lapNote : '';
   state.laps = Array.isArray(data.laps)
     ? data.laps.filter((entry) => entry && LAP_TYPES.includes(entry.type)
         && Number.isFinite(entry.duration))
+      // メモは後から足したので、それより前に保存されたラップには無い
+      .map((entry) => ({ ...entry, note: String(entry.note ?? '') }))
     : [];
   recomputeSums(); // 保存された合計は当てにせず、ラップから数え直す
   state.startedAt = Number(data.startedAt) || null;
@@ -1452,7 +1521,7 @@ function onKeyDown(event) {
   if (!$('lap-sheet').hidden) {
     if (event.key !== 'Escape') return; // 押した先のボタンには任せる
     event.preventDefault();
-    closeLapSheet();
+    sheetClose(); // 書きかけのメモは残す
     return;
   }
 
@@ -1524,8 +1593,20 @@ function init() {
   $('merge-next').addEventListener('click', () => sheetMerge('next'));
   $('undo').addEventListener('click', () => sheetHistory(undo));
   $('redo').addEventListener('click', () => sheetHistory(redo));
-  $('lap-sheet-close').addEventListener('click', closeLapSheet);
-  $('lap-sheet-back').addEventListener('click', closeLapSheet);
+  $('note-save').addEventListener('click', sheetClose);
+  /* 書きかけのメモは、どの閉じ方でも残す（Escape で消えると、打ち直しになる）。
+   * 入力欄にカーソルがある間は onKeyDown が働かないので、ここで受ける。 */
+  $('note-edit').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return;
+    event.preventDefault();
+    sheetClose();
+  });
+  $('lap-sheet-close').addEventListener('click', sheetClose);
+  $('lap-sheet-back').addEventListener('click', sheetClose);
+
+  // 進行中のラップに添えるメモ。ラップを押した時点でそのラップへ移る
+  ui.lapNote.addEventListener('input', () => { state.lapNote = ui.lapNote.value; });
+  ui.lapNote.addEventListener('change', saveSession);
 
   $('reset').addEventListener('click', reset);
   $('export').addEventListener('click', exportMarkdown);

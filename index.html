@@ -38,6 +38,11 @@
         <p id="alert-hint" class="caption caption-small"></p>
       </div>
       <p id="lap" class="clock clock-lap type-work">0:00:00</p>
+      <!-- 進行中のラップに添えるメモ。次のラップを押した時点でそのラップへ移る -->
+      <div class="lap-note">
+        <label class="caption caption-small" for="lap-note">メモ</label>
+        <input class="field field-note" id="lap-note" placeholder="このラップの一言（ラップを押すと残ります）">
+      </div>
     </div>
 
     <div class="block sums">
@@ -73,7 +78,7 @@
       <div class="list-wrap">
         <table class="laps">
           <thead>
-            <tr><th class="col-no"></th><th class="col-type">種別</th><th class="col-num">ラップ</th><th class="col-num">通過</th></tr>
+            <tr><th class="col-no"></th><th class="col-type">種別</th><th class="col-num">ラップ</th><th class="col-num">通過</th><th class="col-note">メモ</th></tr>
           </thead>
           <tbody id="lap-rows"></tbody>
         </table>
@@ -192,6 +197,20 @@
       <hr class="rule">
 
       <div class="block">
+        <p class="caption">ラップのメモ</p>
+        <p class="help-text">大きい時計の下の「メモ」に書いた内容は、次のラップを押した時点でそのラップに残ります。何をしていたかを一言添えておくと、書き出したあとに見返しやすくなります。</p>
+        <ul class="help-list">
+          <li>書くのは進行中のラップについてです。ラップを切ると入力欄は空になります。</li>
+          <li>確定したラップのメモは、一覧の行を押して開く画面の「メモ」から直せます。書いた内容は、その画面を閉じた時点で残ります。</li>
+          <li>ラップを結合すると、両方のメモが「 / 」でつながります（どちらも捨てません）。</li>
+          <li>メモの編集も <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で元に戻せます。</li>
+          <li>メモは一覧の「メモ」列と、<code class="help-code">.md</code> 書き出しの表に入ります。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block">
         <p class="caption">ラップの手直し</p>
         <p class="help-text">押し間違いは、ラップ一覧の行を押すと開く画面で直します。総時間は減らず、時間は結合した相手に移るだけです。</p>
         <dl class="help-terms">
@@ -216,7 +235,7 @@
         <p class="caption">元に戻す・やり直す</p>
         <p class="help-text">ここまでのラップ操作は <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で順に取り消せます。戻しすぎたら <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Y</kbd>（<kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Shift</kbd> + <kbd class="help-code">Z</kbd> も同じ）です。手直しの画面の下にもボタンがあるので、キーの無い端末でも使えます。</p>
         <ul class="help-list">
-          <li>ラップの確定、種別の変更、結合のどれでも戻せます。直前の 1 手だけでなく、遡って何度でも戻せます。</li>
+          <li>ラップの確定、種別の変更、結合、メモの編集のどれでも戻せます。直前の 1 手だけでなく、遡って何度でも戻せます。</li>
           <li>戻しても計測は止まりません。総時間も変わりません。戻している間に経った時間も、進行中のラップに残ります。</li>
           <li>「リセット」は戻せません。消す前に <code class="help-code">.md</code> に書き出してください。</li>
         </ul>
@@ -235,6 +254,8 @@
           <dd>種別ごとの合計。進行中のラップの分も含みます。休憩には長休憩も足しています。</dd>
           <dt>ラップ一覧</dt>
           <dd>確定したラップを上から順に。「ラップ」はそのラップの長さ、「通過」は計測開始からの積算です。</dd>
+          <dt>メモ</dt>
+          <dd>進行中のラップに添える一言。ラップを押した時点でそのラップに残ります。</dd>
         </dl>
       </div>
 
@@ -337,6 +358,20 @@
     <div class="help">
       <div class="block log-entry">
         <div class="log-head">
+          <p class="log-version">v1.4</p>
+          <time class="log-date caption caption-small" datetime="2026-08-10">2026-08-10</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>ラップごとにメモを残せるようにしました。大きい時計の下の「メモ」に書くと、次のラップを押した時点でそのラップに残ります。</li>
+          <li><span class="log-tag tag-add">追加</span>確定したラップのメモを、一覧の行を押して開く画面から編集できるようにしました。<kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で元に戻せます。</li>
+          <li><span class="log-tag tag-change">変更</span>ラップ一覧に「メモ」列を足し、<code class="help-code">.md</code> 書き出しの表にもメモを入れるようにしました。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block log-entry">
+        <div class="log-head">
           <p class="log-version">v1.3</p>
           <time class="log-date caption caption-small" datetime="2026-08-10">2026-08-10</time>
         </div>
@@ -430,6 +465,14 @@
       <button type="button" class="action type-work" data-lap-type="work">作業</button>
       <button type="button" class="action type-break" data-lap-type="break">休憩</button>
       <button type="button" class="action type-long" data-lap-type="long_break">長休憩</button>
+    </div>
+    <!-- 確定したラップのメモ。進行中のラップは大きい時計の下で書くので、そのときは隠す -->
+    <div id="note-row">
+      <p class="sheet-note">メモ</p>
+      <div class="sheet-field">
+        <input class="field field-note" id="note-edit" placeholder="このラップの一言">
+        <button type="button" class="text" id="note-save">保存</button>
+      </div>
     </div>
     <p class="sheet-note" id="merge-note">隣のラップと結合する（総時間は変わりません）</p>
     <div class="sheet-merge">
