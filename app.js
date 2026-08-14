@@ -1,4 +1,4 @@
-/* Hakadory (web) - 作業 / 休憩 / 長休憩 を区別できるラップ付きストップウォッチ。
+/* Hakadory (web) - 種別（作業 / 休憩 / …）を区別できるラップ付きストップウォッチ。
  *
  * デスクトップ版 (別リポジトリの Hakadory.py) の計測・集計・通知の仕様をそのまま移植し、
  * ブラウザで動かせないもの（グローバルショートカット）を外し、
@@ -9,14 +9,47 @@
  */
 'use strict';
 
+// 既定のボタン 3 つ。設定でボタンを増減・改名しても、この識別子は既定として残る
 const WORK = 'work';
 const BREAK = 'break';
 const LONG_BREAK = 'long_break';
 
-const LAP_TYPES = [WORK, BREAK, LONG_BREAK];
-const TYPE_LABEL = { work: '作業', break: '休憩', long_break: '長休憩' };
-const TYPE_CLASS = { work: 'type-work', break: 'type-break', long_break: 'type-long' };
+/* 集計はボタンをこの 2 つのどちらかへ寄せて出す。ボタンをいくつ足しても
+ * 「作業」と「休憩」の 2 列のままにして、画面と .md の形を保つ。 */
+const GROUP_WORK = 'work';
+const GROUP_BREAK = 'break';
+const GROUPS = [
+  { name: GROUP_WORK, text: '作業', ref: 'sumWork', head: 'sumWorkHead' },
+  { name: GROUP_BREAK, text: '休憩', ref: 'sumBreak', head: 'sumBreakHead' },
+];
+const GROUP_NAMES = GROUPS.map((group) => group.name);
+const DEFAULT_GROUP = GROUP_WORK;
+
+// ボタンの色は配色ごとに用意した見本から選ぶ（自由な色指定にすると配色が壊れる）
+const PALETTE = [['blue', '青'], ['amber', '橙'], ['purple', '紫'],
+  ['green', '緑'], ['pink', '桃'], ['cyan', '水']];
+const PALETTE_NAMES = PALETTE.map(([name]) => name);
+const DEFAULT_COLOR = 'blue';
+
+// ボタンは 1 行 3 つ。増やせるのは、その行が 2 段に収まるところまで
+const LAP_COLUMNS = 3;
+const MAX_LAP_TYPES = 6;
+const MIN_LAP_TYPES = 1;
+const LAP_SPAN_UNITS = 6; // 1 行の幅を刻む数。1 個 / 2 個 / 3 個のどれでも割り切れる
+const MAX_LABEL = 5;      // 3 つ並べても押しつぶれない表示名の長さ
+const MAX_PROFILE_NAME = 8;
+
 const DEFAULT_MINUTES = { work: '25', break: '5', long_break: '30' };
+// 1 プロファイル = ボタンの並び（名前・色・集計側・通知の分数）
+const DEFAULT_TYPES = [
+  { id: WORK, label: '作業', color: 'blue', group: GROUP_WORK, minutes: DEFAULT_MINUTES[WORK] },
+  { id: BREAK, label: '休憩', color: 'amber', group: GROUP_BREAK, minutes: DEFAULT_MINUTES[BREAK] },
+  { id: LONG_BREAK, label: '長休憩', color: 'purple', group: GROUP_BREAK, minutes: DEFAULT_MINUTES[LONG_BREAK] },
+];
+const DEFAULT_PROFILE_NAME = '既定';
+const NEW_TYPE_LABEL = 'ボタン';
+const NEW_PROFILE_NAME = '新しい設定';
+
 const DEFAULT_REPEAT_MINUTES = '5';
 const UNDO_LIMIT = 50; // 「元に戻す」で遡れる手数
 
@@ -62,12 +95,6 @@ const DEFAULT_AUTO_START_TIME = '09:00';
 const DEFAULT_AUTO_END_TIME = '18:00';
 const DEFAULT_AUTO_START_DAYS = [0, 1, 2, 3, 4];
 
-// 合計は休憩と長休憩をまとめて出す（ラップ一覧では種別のまま残る）
-const SUMMARY_GROUPS = [
-  { text: '作業', types: [WORK], ref: 'sumWork' },
-  { text: '休憩（長休憩含む）', types: [BREAK, LONG_BREAK], ref: 'sumBreak' },
-];
-
 /* 要望・不具合の報告先（Google フォームの回答 URL）。ここを埋めると、使い方タブと
  * 設定タブにリンクが出る。空のままなら、行き先のないリンクは出さない。
  * 送信はフォーム側で完結するので、このアプリから外部へ出るものは何もない。 */
@@ -77,6 +104,7 @@ const THEME_NAMES = ['standard', 'dark', 'light'];
 const DEFAULT_THEME = 'standard';
 const SETTINGS_KEY = 'Hakadory.settings';
 const SESSION_KEY = 'Hakadory.session';
+const SESSION_VERSION = 2; // 2 で種別の控え（types）が付いた。1 も読める
 const TICK_MS = 50;
 
 // ---------------------------------------------------------------- 小さな道具
@@ -128,14 +156,116 @@ const now = () => Date.now() / 1000;
 const ui = {};
 const UI_IDS = [
   'total', 'lap', 'lap-title', 'lap-note', 'alert-hint', 'sum-work', 'sum-break',
-  'start', 'lap-rows', 'auto-start-hint', 'auto-end-hint', 'keep-awake-hint',
-  'toast', 'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
+  'sum-work-head', 'sum-break-head', 'start', 'lap-rows', 'auto-start-hint',
+  'auto-end-hint', 'keep-awake-hint', 'toast', 'key-hint', 'lap-buttons',
+  'sheet-types', 'minutes', 'profiles', 'type-rows', 'type-count',
+  'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
+  'mini-keys',
 ];
 
 function cacheUi() {
   for (const id of UI_IDS) {
     ui[id.replace(/-(.)/g, (_, c) => c.toUpperCase())] = $(id);
   }
+}
+
+// ------------------------------------------- ボタン（ラップ種別）とプロファイル
+
+/* ボタン 1 つ = { id, label, color, group, minutes } の連想配列。
+ *   id      設定と記録をつなぐ識別子。表示名を変えても動かさない
+ *   label   ボタンに出る名前。.md にもこの名前で残る
+ *   color   PALETTE の色名（配色ごとに実際の色へ読み替える）
+ *   group   集計をどちら側に足すか（GROUP_WORK / GROUP_BREAK）
+ *   minutes 通知までの分（文字列。空や 0 なら鳴らさない）
+ *
+ * 記録（laps / currentType）が持つのは id だけで、表示名と色はそのつど
+ * typeInfo() から引く。焼き込むと、名前を変えたときに過去のラップだけ
+ * 古い名前で残ってしまう。 */
+
+/** 表示名を整える。空白を詰め、長すぎるものは切る。 */
+function cleanLabel(text, limit = MAX_LABEL, fallback = '') {
+  const name = String(text ?? '').split(/\s+/).filter(Boolean).join(' ')
+    .replace(/\|/g, '／'); // .md の表を壊さないため
+  return name.slice(0, limit) || fallback;
+}
+
+/** 同じ名前が並ばないよう、必要なら末尾に数字を足す。 */
+function uniqueLabel(name, taken, limit = MAX_LABEL) {
+  if (!taken.has(name)) return name;
+  for (let number = 2; number < 100; number += 1) {
+    const suffix = String(number);
+    const candidate = name.slice(0, Math.max(limit - suffix.length, 1)) + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return name;
+}
+
+/** ボタンの識別子を作る。表示名とは別に、保存した設定の中で固定する。 */
+function newTypeId(taken) {
+  for (let number = 1; number < 1000; number += 1) {
+    const candidate = `type${number}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return 'type';
+}
+
+/** 保存されたボタン定義を、使える形に整える。1 つも読めなければ null。 */
+function normalizeTypes(raw) {
+  if (!Array.isArray(raw)) return null;
+  const types = [];
+  const ids = new Set();
+  const labels = new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    if (!id || ids.has(id)) continue;
+    const label = uniqueLabel(cleanLabel(item.label, MAX_LABEL, id), labels);
+    types.push({
+      id,
+      label,
+      color: PALETTE_NAMES.includes(item.color) ? item.color : DEFAULT_COLOR,
+      group: GROUP_NAMES.includes(item.group) ? item.group : DEFAULT_GROUP,
+      minutes: typeof item.minutes === 'string' ? item.minutes : '',
+    });
+    ids.add(id);
+    labels.add(label);
+    if (types.length >= MAX_LAP_TYPES) break; // 読み込みでも上限は超えさせない
+  }
+  return types.length ? types : null;
+}
+
+/** 既定のボタン 3 つ。minutes があれば通知の分数だけ差し替える。 */
+function defaultTypes(minutes) {
+  return DEFAULT_TYPES.map((entry) => {
+    const value = minutes && typeof minutes === 'object' ? minutes[entry.id] : null;
+    return { ...entry, minutes: typeof value === 'string' ? value : entry.minutes };
+  });
+}
+
+/** プロファイル一覧を整える。読めなければ既定の 1 つだけを返す。
+ *
+ * 数に上限は設けない（作ったぶんだけ残す）。minutes は、プロファイルが
+ * まだ無かったころの設定（alertMinutes）から分数を引き継ぐためのもの。
+ */
+function normalizeProfiles(raw, minutes) {
+  const profiles = [];
+  const names = new Set();
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const types = normalizeTypes(item.types);
+      if (types === null) continue;
+      const name = uniqueLabel(
+        cleanLabel(item.name, MAX_PROFILE_NAME, DEFAULT_PROFILE_NAME),
+        names, MAX_PROFILE_NAME);
+      profiles.push({ name, types });
+      names.add(name);
+    }
+  }
+  if (!profiles.length) {
+    profiles.push({ name: DEFAULT_PROFILE_NAME, types: defaultTypes(minutes) });
+  }
+  return profiles;
 }
 
 // ---------------------------------------------------------------- 状態
@@ -147,10 +277,10 @@ const state = {
   lapBase: 0,     // 現在ラップの停止中までの経過
   lapMark: 0,
   currentType: WORK,
-  lapNote: '',                                // 進行中のラップに添えるメモ
-  laps: [],                                   // 確定したラップ
-  sums: { work: 0, break: 0, long_break: 0 }, // 確定ラップだけの種別合計
-  nextAlert: null,                            // 次に鳴らすラップ内経過秒
+  lapNote: '',        // 進行中のラップに添えるメモ
+  laps: [],           // 確定したラップ
+  sums: {},           // 確定ラップだけの種別合計（種別の識別子 -> 秒）
+  nextAlert: null,    // 次に鳴らすラップ内経過秒
   startedAt: null,                            // 計測開始（壁時計、ミリ秒）
   lapStartedAt: null,                         // 現在ラップ開始（壁時計、ミリ秒）
   autoStartDone: null,
@@ -164,7 +294,9 @@ const settings = {
   sound: DEFAULT_SOUND,
   volume: DEFAULT_VOLUME,
   customSoundName: '', // 読み込んだ音声ファイルの名前（中身は IndexedDB）
-  alertMinutes: { ...DEFAULT_MINUTES },
+  // ボタンの並びと通知までの分はプロファイルが持つ（音・配色などは共通のまま）
+  profiles: normalizeProfiles(null),
+  profileIndex: 0,
   alertRepeatMinutes: DEFAULT_REPEAT_MINUTES,
   autoStartEnabled: false,
   autoStartTime: DEFAULT_AUTO_START_TIME,
@@ -173,6 +305,254 @@ const settings = {
   autoStartDays: [...DEFAULT_AUTO_START_DAYS],
   keepAwake: false,
 };
+
+/* 一度でも見た種別を控えておく（消したボタン、切り替える前のプロファイル、
+ * 保存された記録から戻したもの）。これがないと、ボタンを消した瞬間に
+ * 記録済みのラップが名無しになる。 */
+const typeRegistry = {};
+
+/** いま画面に出ているボタンの並び（プロファイルが持つ配列そのもの）。 */
+function currentTypes() {
+  return settings.profiles[settings.profileIndex].types;
+}
+
+function typeIds() {
+  return currentTypes().map((entry) => entry.id);
+}
+
+function hasType(id) {
+  return currentTypes().some((entry) => entry.id === id);
+}
+
+/** 今のボタンを控えに写す（名前や色を変えたら、控えのほうも新しくする）。 */
+function rememberTypes() {
+  for (const entry of currentTypes()) typeRegistry[entry.id] = { ...entry };
+}
+
+/** 種別 1 つ分の定義。今のプロファイルに無ければ控えから引く。
+ *
+ * 「今のプロファイル → 控え → 最低限の既定」の順を崩さないこと
+ * （崩すと、今のプロファイルでの改名が控えの古い名前に負ける）。
+ */
+function typeInfo(id) {
+  for (const entry of currentTypes()) {
+    if (entry.id === id) return entry;
+  }
+  if (typeRegistry[id]) return typeRegistry[id];
+  return {
+    id, label: String(id), color: DEFAULT_COLOR, group: DEFAULT_GROUP, minutes: '',
+  };
+}
+
+const typeLabel = (id) => typeInfo(id).label;
+const typeColor = (id) => typeInfo(id).color;
+
+/** .md にしか無かった種別や、保存された記録の種別を控える。 */
+function rememberType(id, label, color, group) {
+  if (typeRegistry[id]) return;
+  typeRegistry[id] = {
+    id,
+    label: cleanLabel(label, MAX_LABEL, String(id)),
+    color: PALETTE_NAMES.includes(color) ? color : DEFAULT_COLOR,
+    // 集計側が分からないときは名前から見当を付ける（違えば一覧から直せる）
+    group: GROUP_NAMES.includes(group)
+      ? group : (String(label).includes('休憩') ? GROUP_BREAK : GROUP_WORK),
+    minutes: '',
+  };
+}
+
+/** 記録に出てくる種別を、出てきた順に並べる（進行中も含む）。 */
+function recordedTypes() {
+  const seen = [];
+  for (const entry of state.laps) {
+    if (!seen.includes(entry.type)) seen.push(entry.type);
+  }
+  if (!seen.includes(state.currentType)) seen.push(state.currentType);
+  return seen;
+}
+
+/** その集計側に足す種別。今は無いボタンの記録も取りこぼさない。 */
+function summaryTypes(group) {
+  const ids = currentTypes().filter((entry) => entry.group === group)
+    .map((entry) => entry.id);
+  for (const id of recordedTypes()) {
+    if (!ids.includes(id) && typeInfo(id).group === group) ids.push(id);
+  }
+  return ids;
+}
+
+/** 集計の見出しの色。その側にある最初のボタンの色を借りる。 */
+function groupColor(group) {
+  const entry = currentTypes().find((item) => item.group === group);
+  return entry ? entry.color : null;
+}
+
+/** 自動開始で使う種別。集計が「作業」側の最初のボタン。 */
+function firstWorkType() {
+  const ids = summaryTypes(GROUP_WORK).filter(hasType);
+  return ids.length ? ids[0] : typeIds()[0];
+}
+
+/** 単キーの割り当て。並び順の 1〜9 と、既定の 3 つが残っていれば W / B / L。 */
+function lapKeys() {
+  const keys = {};
+  currentTypes().slice(0, 9).forEach((entry, index) => {
+    keys[String(index + 1)] = entry.id;
+  });
+  for (const [key, id] of [['w', WORK], ['b', BREAK], ['l', LONG_BREAK]]) {
+    if (hasType(id)) keys[key] = id;
+  }
+  return keys;
+}
+
+/** フッターに出す単キーの案内（ボタンの数で 1〜n が変わる）。 */
+function keyHint() {
+  const count = currentTypes().length;
+  return `Space  ${count <= 1 ? '1' : `1-${count}`}  M  ⌃Z/Y`;
+}
+
+// --------------------------------------------- ボタンとプロファイルの操作
+
+/** ボタンの数・名前・色・並びが変わったあとの後始末。
+ *
+ * rebuildRows が false のときは編集画面の行を作り直さず、印と色だけ付け替える
+ * （押した部品を消さないため。名前・色・集計側の変更はこちらを通る）。
+ */
+function afterTypesChanged(rebuildRows = true) {
+  // 数・並びが変わったとき（追加・削除・入れ替え・プロファイル切替）だけ行を組み直す
+  rememberTypes();
+  recomputeSums();
+  renderLapButtons();
+  renderSheetTypes();
+  renderMiniKeys();
+  renderMinutes();
+  renderProfiles();
+  if (rebuildRows) renderTypeRows(); else restyleTypeRows();
+  rebuildLapRows(); // 名前と色は一覧にも出るので引き直す
+  resetAlert();     // 通知までの分はボタンごと
+  refresh();
+  saveSettings();
+}
+
+function profileNames() {
+  return settings.profiles.map((profile) => profile.name);
+}
+
+/** 使うプロファイルを切り替える。記録はそのまま残す。 */
+function setProfile(index) {
+  if (!(index >= 0 && index < settings.profiles.length)) return false;
+  if (index === settings.profileIndex) return false;
+  settings.profileIndex = index;
+  afterTypesChanged();
+  return true;
+}
+
+/** プロファイルを増やして、そちらに切り替える。数に上限は設けない。 */
+function addProfile(name, copyCurrent) {
+  const types = copyCurrent
+    ? currentTypes().map((entry) => ({ ...entry }))
+    : defaultTypes();
+  const label = uniqueLabel(
+    cleanLabel(name, MAX_PROFILE_NAME, NEW_PROFILE_NAME),
+    new Set(profileNames()), MAX_PROFILE_NAME);
+  settings.profiles.push({ name: label, types });
+  settings.profileIndex = settings.profiles.length - 1;
+  afterTypesChanged();
+  return true;
+}
+
+function renameProfile(index, name) {
+  if (!(index >= 0 && index < settings.profiles.length)) return false;
+  const taken = new Set(profileNames());
+  taken.delete(settings.profiles[index].name);
+  settings.profiles[index].name = uniqueLabel(
+    cleanLabel(name, MAX_PROFILE_NAME, settings.profiles[index].name),
+    taken, MAX_PROFILE_NAME);
+  renderProfiles();
+  saveSettings();
+  return true;
+}
+
+/** プロファイルを消す。最後の 1 つは残す（ボタンが無くなるため）。 */
+function removeProfile(index) {
+  if (settings.profiles.length <= 1) return false;
+  if (!(index >= 0 && index < settings.profiles.length)) return false;
+  settings.profiles.splice(index, 1);
+  if (index < settings.profileIndex) settings.profileIndex -= 1;
+  settings.profileIndex = Math.min(settings.profileIndex,
+    settings.profiles.length - 1);
+  afterTypesChanged();
+  return true;
+}
+
+const canAddType = () => currentTypes().length < MAX_LAP_TYPES;
+
+/** ボタンを 1 つ増やす。並べても崩れない数までに限る。 */
+function addType() {
+  if (!canAddType()) return false;
+  const types = currentTypes();
+  const used = new Set(types.map((entry) => entry.color));
+  const color = PALETTE_NAMES.find((name) => !used.has(name)) || DEFAULT_COLOR;
+  const taken = new Set(Object.keys(typeRegistry).concat(typeIds()));
+  types.push({
+    id: newTypeId(taken),
+    label: uniqueLabel(NEW_TYPE_LABEL, new Set(types.map((e) => e.label))),
+    color,
+    group: DEFAULT_GROUP,
+    minutes: DEFAULT_MINUTES[WORK],
+  });
+  afterTypesChanged();
+  return true;
+}
+
+/** ボタンを 1 つ減らす。その種別で記録済みのラップはそのまま残る。 */
+function removeType(index) {
+  const types = currentTypes();
+  if (types.length <= MIN_LAP_TYPES || !(index >= 0 && index < types.length)) {
+    return false;
+  }
+  types.splice(index, 1);
+  /* 進行中の種別が消えても差し替えない（記録を書き換えないため。見出しには
+   * 消したボタンの名前が残り、次のラップで新しい種別になる）。 */
+  afterTypesChanged();
+  return true;
+}
+
+/** ボタンの並び順を入れ替える（押しやすい位置に置けるように）。 */
+function moveType(index, step) {
+  const types = currentTypes();
+  const target = index + step;
+  if (!(index >= 0 && index < types.length)) return false;
+  if (!(target >= 0 && target < types.length)) return false;
+  [types[index], types[target]] = [types[target], types[index]];
+  afterTypesChanged();
+  return true;
+}
+
+/** ボタンの名前・色・集計側を変える。記録済みのラップの表示にも効く。 */
+function setTypeField(index, key, value) {
+  const types = currentTypes();
+  if (!(index >= 0 && index < types.length)) return false;
+  const entry = types[index];
+  if (key === 'label') {
+    const taken = new Set(types.filter((other) => other !== entry)
+      .map((other) => other.label));
+    value = uniqueLabel(cleanLabel(value, MAX_LABEL, entry.label), taken);
+  } else if (key === 'color') {
+    if (!PALETTE_NAMES.includes(value)) return false;
+  } else if (key === 'group') {
+    if (!GROUP_NAMES.includes(value)) return false;
+  } else {
+    return false;
+  }
+  if (entry[key] === value) return false;
+  entry[key] = value;
+  /* 編集画面の行は作り直さない（名前・色・集計側は印と文字を書き換えるだけ）。
+   * 作り直すと、直したばかりの部品が消えて、続けて押した先が無くなる
+   * （名前を打ってからそのまま色を押す、のような操作が 1 回空振りする）。 */
+  afterTypesChanged(false);
+  return true;
+}
 
 function totalElapsed() {
   return state.running ? state.totalBase + (now() - state.totalMark) : state.totalBase;
@@ -184,7 +564,7 @@ function lapElapsed() {
 
 /** 確定ラップの合計に、進行中ラップの分も足した値。 */
 function liveSum(type) {
-  return state.sums[type] + (type === state.currentType ? lapElapsed() : 0);
+  return (state.sums[type] ?? 0) + (type === state.currentType ? lapElapsed() : 0);
 }
 
 function groupSum(types) {
@@ -233,7 +613,7 @@ function lap(type) {
 
   const duration = lapElapsed();
   if (duration > 0) {
-    state.sums[state.currentType] += duration;
+    state.sums[state.currentType] = (state.sums[state.currentType] ?? 0) + duration;
     state.laps.push({
       type: state.currentType,
       duration,
@@ -256,10 +636,18 @@ function lap(type) {
 
 // ------------------------------------------------- ラップの手直し
 
-/** 種別ごとの合計を、確定ラップから数え直す。 */
+/** 種別ごとの合計を、確定ラップから数え直す。
+ *
+ * いま画面に無いボタンの記録も数える（プロファイルを切り替えても、
+ * 書き出しと集計から抜け落ちないようにするため）。
+ */
 function recomputeSums() {
-  state.sums = { work: 0, break: 0, long_break: 0 };
-  for (const entry of state.laps) state.sums[entry.type] += entry.duration;
+  state.sums = {};
+  for (const id of typeIds()) state.sums[id] = 0;
+  if (state.sums[state.currentType] === undefined) state.sums[state.currentType] = 0;
+  for (const entry of state.laps) {
+    state.sums[entry.type] = (state.sums[entry.type] ?? 0) + entry.duration;
+  }
 }
 
 /** ラップを手直ししたあとの後始末。alert は進行中ラップが動いたとき。 */
@@ -273,7 +661,7 @@ function afterLapEdit(alert) {
 
 /** 確定ラップの種別を変える。時間はいっさい動かさない。 */
 function setLapType(index, type) {
-  if (!LAP_TYPES.includes(type) || !state.laps[index]) return false;
+  if (!hasType(type) || !state.laps[index]) return false;
   if (state.laps[index].type === type) return false;
   pushUndo();
   state.laps[index].type = type;
@@ -294,7 +682,7 @@ function setLapNote(index, text) {
 
 /** 進行中のラップの種別だけを直す（ラップを切らずに種別を差し替える）。 */
 function setCurrentType(type) {
-  if (!LAP_TYPES.includes(type) || type === state.currentType) return false;
+  if (!hasType(type) || type === state.currentType) return false;
   pushUndo();
   state.currentType = type;
   resetAlert(); // 通知までの分は種別ごとなので張り直す
@@ -312,10 +700,10 @@ function canMergeLap(index, direction) {
 /** 結合するとどの種別に吸われるかを、メニューに出すための名前。 */
 function mergeTargetLabel(index, direction) {
   if (direction === 'prev') {
-    return index > 0 ? TYPE_LABEL[state.laps[index - 1].type] : 'なし';
+    return index > 0 ? typeLabel(state.laps[index - 1].type) : 'なし';
   }
-  if (state.laps[index + 1]) return TYPE_LABEL[state.laps[index + 1].type];
-  return `進行中・${TYPE_LABEL[state.currentType]}`;
+  if (state.laps[index + 1]) return typeLabel(state.laps[index + 1].type);
+  return `進行中・${typeLabel(state.currentType)}`;
 }
 
 /** 確定ラップを隣のラップへ畳み込む。総時間は変わらない。
@@ -434,7 +822,7 @@ function reset() {
   state.running = false;
   state.totalBase = 0;
   state.lapBase = 0;
-  state.currentType = WORK;
+  state.currentType = typeIds()[0];
   state.startedAt = null;
   state.lapStartedAt = null;
   state.lapNote = '';
@@ -727,10 +1115,16 @@ async function clearCustomSound() {
   resetAlert();
 }
 
-/** 現在の種別に設定された通知間隔（秒）。無効なら null。 */
+/** 現在の種別に設定された通知間隔（秒）。無効なら null。
+ *
+ * 進行中の種別が今のプロファイルに無ければ（ボタンを消した直後など）、
+ * 控えに残っている分数で鳴らす。
+ */
 function alertSeconds() {
   if (!settings.alertEnabled) return null;
-  const minutes = Number(settings.alertMinutes[state.currentType]);
+  const text = typeInfo(state.currentType).minutes;
+  if (String(text).trim() === '') return null;
+  const minutes = Number(text);
   if (!Number.isFinite(minutes) || minutes <= 0) return null;
   return minutes * 60;
 }
@@ -867,12 +1261,17 @@ function dateText(value) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
-/** 記録と集計を Markdown 文字列にする。 */
+/** 記録と集計を Markdown 文字列にする。
+ *
+ * 集計はボタン 1 つずつの行を出し、そのあとに「作業計」「休憩計」を置く。
+ * ボタンを増やしても、どれにどれだけ使ったかが残るようにする。
+ */
 function buildMarkdown() {
   const rows = lapRows();
   const total = totalElapsed();
-  const counts = { work: 0, break: 0, long_break: 0 };
-  for (const row of rows) counts[row.type] += 1;
+  const counts = {};
+  for (const row of rows) counts[row.type] = (counts[row.type] ?? 0) + 1;
+  const share = (seconds) => Math.round(total > 0 ? (seconds / total) * 100 : 0);
 
   const lines = [`# Hakadory 記録 ${dateText(Date.now())}`, ''];
   if (state.startedAt !== null) {
@@ -883,11 +1282,17 @@ function buildMarkdown() {
   lines.push('', '## 集計', '',
     '| 種別 | 時間 | 回数 | 割合 |',
     '| --- | ---: | ---: | ---: |');
-  for (const group of SUMMARY_GROUPS) {
-    const seconds = groupSum(group.types);
-    const share = total > 0 ? (seconds / total) * 100 : 0;
-    const count = group.types.reduce((sum, type) => sum + counts[type], 0);
-    lines.push(`| ${group.text} | ${formatTime(seconds)} | ${count} | ${Math.round(share)}% |`);
+  for (const group of GROUPS) {
+    const types = summaryTypes(group.name);
+    for (const type of types) {
+      const seconds = liveSum(type);
+      lines.push(`| ${typeLabel(type)} | ${formatTime(seconds)}`
+        + ` | ${counts[type] ?? 0} | ${share(seconds)}% |`);
+    }
+    const seconds = groupSum(types);
+    const count = types.reduce((sum, type) => sum + (counts[type] ?? 0), 0);
+    lines.push(`| **${group.text}計** | **${formatTime(seconds)}**`
+      + ` | **${count}** | **${share(seconds)}%** |`);
   }
   lines.push(`| **合計** | **${formatTime(total)}** | **${rows.length}** | **100%** |`);
 
@@ -899,7 +1304,7 @@ function buildMarkdown() {
     const number = row.endedAt ? String(index + 1) : `${index + 1}（進行中）`;
     // 表の区切りと衝突しないよう、メモの縦棒だけ逃がす
     const note = String(row.note ?? '').replace(/\|/g, '\\|');
-    lines.push(`| ${number} | ${TYPE_LABEL[row.type]} | ${formatTime(row.duration)}`
+    lines.push(`| ${number} | ${typeLabel(row.type)} | ${formatTime(row.duration)}`
       + ` | ${formatTime(row.total)} | ${clockText(row.startedAt)}`
       + ` | ${clockText(row.endedAt)} | ${note} |`);
   });
@@ -938,9 +1343,13 @@ function toast(message) {
 
 // ---------------------------------------------------------------- 自動開始・自動終了
 
-/** 作業ラップにして計測を動かす（止まっていれば動かす）。 */
+/** 作業ラップにして計測を動かす（止まっていれば動かす）。
+ *
+ * 使う種別は、集計が「作業」側の最初のボタン。既定のままなら「作業」で、
+ * ボタンを入れ替えたときはその先頭になる。
+ */
 function startWorkSession() {
-  lap(WORK);
+  lap(firstWorkType());
   if (!state.running) toggleRun();
 }
 
@@ -1008,9 +1417,16 @@ function updateAutoHints() {
 
 // ---------------------------------------------------------------- 表示の更新
 
-function setTypeClass(el, type) {
-  el.classList.remove('type-work', 'type-break', 'type-long');
-  el.classList.add(TYPE_CLASS[type]);
+/** その要素を見本の色で塗る（色ごとのクラスは置かず、--tint に流し込む）。 */
+function setTint(el, color) {
+  const name = PALETTE_NAMES.includes(color) ? color : DEFAULT_COLOR;
+  el.classList.add('tinted');
+  el.style.setProperty('--tint', `var(--${name})`);
+}
+
+/** その要素を種別の色で塗る。 */
+function setTypeTint(el, type) {
+  setTint(el, typeColor(type));
 }
 
 function insertLapRow(number, entry, total) {
@@ -1020,7 +1436,7 @@ function insertLapRow(number, entry, total) {
   const note = entry.note ?? '';
   const cells = [
     ['col-no', String(number)],
-    ['col-type', TYPE_LABEL[entry.type]],
+    ['col-type', typeLabel(entry.type)],
     ['col-num', formatTime(entry.duration)],
     ['col-num', formatTime(total)],
     ['col-note', note],
@@ -1033,9 +1449,255 @@ function insertLapRow(number, entry, total) {
     if (cls === 'col-note' && text !== '') cell.title = text;
     row.appendChild(cell);
   }
-  setTypeClass(row, entry.type);
+  setTypeTint(row, entry.type);
   const body = ui.lapRows;
   body.insertBefore(row, body.firstChild); // 新しい順
+}
+
+// ------------------------------------------------- ボタンの組み立て
+
+/* ラップのボタンは 1 行 LAP_COLUMNS 個ずつ並べる。その行が 1 個や 2 個で
+ * 終わるとき（ボタンが 1・2・4・5 個のとき）は、右側を空けたままにせず
+ * 行いっぱいまで広げる。列を LAP_COLUMNS ではなく LAP_SPAN_UNITS で刻んで
+ * おき、1 個なら 6 列ぶん、2 個なら 3 列ぶん、3 個なら 2 列ぶんを占めさせる
+ * （6 は 1・2・3 のどれでも割り切れる）。 */
+function lapSpan(index, count) {
+  const rowStart = Math.floor(index / LAP_COLUMNS) * LAP_COLUMNS;
+  return LAP_SPAN_UNITS / Math.min(LAP_COLUMNS, count - rowStart);
+}
+
+/** ラップのボタン 1 つ。名前と色はボタンの定義から引く。 */
+function makeLapButton(entry, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'action';
+  button.textContent = entry.label;
+  setTint(button, entry.color);
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+/** タイマータブのラップのボタン。 */
+function renderLapButtons() {
+  const types = currentTypes();
+  ui.lapButtons.textContent = '';
+  types.forEach((entry, index) => {
+    const button = makeLapButton(entry, () => lap(entry.id));
+    button.style.gridColumn = `span ${lapSpan(index, types.length)}`;
+    ui.lapButtons.appendChild(button);
+  });
+}
+
+/** 手直しシートの「種別を変える」。押せるかどうかは renderLapSheet が決める。 */
+function renderSheetTypes() {
+  const types = currentTypes();
+  ui.sheetTypes.textContent = '';
+  types.forEach((entry, index) => {
+    const button = makeLapButton(entry, () => sheetSetType(entry.id));
+    button.dataset.lapType = entry.id;
+    button.style.gridColumn = `span ${lapSpan(index, types.length)}`;
+    ui.sheetTypes.appendChild(button);
+  });
+}
+
+/** ミニ表示の操作。「開始」も同じ行に置き、余りは下の行へ折り返す。 */
+function renderMiniKeys() {
+  const holder = ui.miniKeys;
+  holder.textContent = '';
+  holder.appendChild(ui.miniStart); // 同じ部品を使い回す（表示の更新先が変わらない）
+  for (const entry of currentTypes()) {
+    holder.appendChild(makeLapButton(entry, () => lap(entry.id)));
+  }
+}
+
+/* 分の入力欄。名前や色が変わっただけのときに捨てて作り直すと、打っている
+ * 途中の入力欄が消える（打ち直しになる）ので、並びが同じなら書き換える。 */
+let minutesParts = [];
+
+/** 設定タブの、ボタンごとの通知までの分。 */
+function renderMinutes() {
+  const types = currentTypes();
+  const same = minutesParts.length === types.length
+    && minutesParts.every((part, index) => part.id === types[index].id);
+  if (same) {
+    types.forEach((entry, index) => {
+      const part = minutesParts[index];
+      part.name.textContent = entry.label;
+      part.field.setAttribute('aria-label', `${entry.label}の通知までの分`);
+      setTint(part.field, entry.color);
+      // 打っている最中の入力欄は触らない（同じ文字列なら書き込まない）
+      if (part.field.value !== entry.minutes) part.field.value = entry.minutes;
+    });
+    return;
+  }
+
+  const holder = ui.minutes;
+  holder.textContent = '';
+  minutesParts = [];
+  for (const entry of types) {
+    const cell = document.createElement('span');
+    const name = document.createElement('span');
+    name.className = 'caption caption-small';
+    name.textContent = entry.label;
+    const field = document.createElement('input');
+    field.className = 'field';
+    field.inputMode = 'numeric';
+    field.size = 3;
+    field.value = entry.minutes;
+    field.setAttribute('aria-label', `${entry.label}の通知までの分`);
+    setTint(field, entry.color);
+    field.addEventListener('input', () => {
+      entry.minutes = field.value;
+      saveSettings();
+      resetAlert();
+    });
+    const unit = document.createElement('span');
+    unit.className = 'caption caption-small';
+    unit.textContent = '分';
+    cell.append(name, field, unit);
+    holder.appendChild(cell);
+    minutesParts.push({ id: entry.id, name, field });
+  }
+}
+
+/** 設定タブのプロファイルの選択肢。 */
+function renderProfiles() {
+  const holder = ui.profiles;
+  holder.textContent = '';
+  profileNames().forEach((name, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'choice';
+    button.classList.toggle('is-selected', index === settings.profileIndex);
+    button.title = name;
+    button.textContent = name;
+    button.addEventListener('click', () => setProfile(index));
+    holder.appendChild(button);
+  });
+  // 最後の 1 つは消せない（ボタンが無くなるため）
+  $('profile-remove').hidden = settings.profiles.length <= 1;
+}
+
+/* 編集画面の行 -> その行の色・集計の部品。色と集計側を選び直したときは、
+ * 行ごと作り直さずにここを見て印だけ付け替える（押したボタンを消さない）。 */
+let typeRowParts = [];
+
+/** 設定タブのボタン一覧。数・並び・名前が変わったときだけ呼ぶ。 */
+function renderTypeRows() {
+  const types = currentTypes();
+  const holder = ui.typeRows;
+  holder.textContent = '';
+  typeRowParts = [];
+  types.forEach((entry, index) => {
+    const row = document.createElement('div');
+    row.className = 'type-row';
+    const parts = { colors: {}, groups: {}, field: null };
+    typeRowParts.push(parts);
+
+    const field = document.createElement('input');
+    field.className = 'field field-label';
+    field.maxLength = MAX_LABEL;
+    field.value = entry.label;
+    field.setAttribute('aria-label', 'ボタンの名前');
+    setTint(field, entry.color);
+    parts.field = field;
+    // 1 文字ごとに直さず、入力欄から離れたところで確定する
+    const commit = () => {
+      setTypeField(index, 'label', field.value);
+      // 整えた結果に合わせる（空欄や、他と同じ名前は元に戻る）
+      field.value = entry.label;
+    };
+    field.addEventListener('change', commit);
+    field.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') field.blur();
+    });
+
+    const colors = document.createElement('span');
+    colors.className = 'swatches';
+    for (const [name, text] of PALETTE) {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'swatch';
+      swatch.textContent = '●';
+      swatch.title = text;
+      swatch.setAttribute('aria-label', `色: ${text}`);
+      swatch.classList.toggle('is-selected', name === entry.color);
+      setTint(swatch, name);
+      swatch.addEventListener('click', () => setTypeField(index, 'color', name));
+      parts.colors[name] = swatch;
+      colors.appendChild(swatch);
+    }
+
+    const groups = document.createElement('span');
+    groups.className = 'groups';
+    for (const group of GROUPS) {
+      const choice = document.createElement('button');
+      choice.type = 'button';
+      choice.className = 'choice';
+      choice.textContent = group.text;
+      choice.setAttribute('aria-label', `集計: ${group.text}`);
+      choice.classList.toggle('is-selected', group.name === entry.group);
+      choice.addEventListener('click', () => setTypeField(index, 'group', group.name));
+      parts.groups[group.name] = choice;
+      groups.appendChild(choice);
+    }
+
+    const tools = document.createElement('span');
+    tools.className = 'type-tools';
+    for (const [text, step] of [['↑', -1], ['↓', 1]]) {
+      if (!(index + step >= 0 && index + step < types.length)) continue;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'text';
+      button.textContent = text;
+      button.setAttribute('aria-label', step < 0 ? '上へ移動' : '下へ移動');
+      button.addEventListener('click', () => moveType(index, step));
+      tools.appendChild(button);
+    }
+    if (types.length > MIN_LAP_TYPES) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'text';
+      remove.textContent = '削除';
+      remove.addEventListener('click', () => {
+        if (window.confirm(`ボタン「${entry.label}」を消します。`
+          + '\n記録したラップは名前と色を保ったまま残ります。')) {
+          removeType(index);
+        }
+      });
+      tools.appendChild(remove);
+    }
+
+    row.append(field, colors, groups, tools);
+    holder.appendChild(row);
+  });
+
+  ui.typeCount.textContent = `${types.length} / ${MAX_LAP_TYPES}`;
+  // 上限に達したら「追加」を出さないだけにする（上の「6 / 6」で足りる）
+  $('type-add').hidden = !canAddType();
+}
+
+/** 名前・色・集計側を直したときに、行を作り直さず印と色だけ付け替える。 */
+function restyleTypeRows() {
+  currentTypes().forEach((entry, index) => {
+    const parts = typeRowParts[index];
+    if (!parts) return;
+    for (const [name, swatch] of Object.entries(parts.colors)) {
+      swatch.classList.toggle('is-selected', name === entry.color);
+    }
+    for (const [name, choice] of Object.entries(parts.groups)) {
+      choice.classList.toggle('is-selected', name === entry.group);
+    }
+    setTint(parts.field, entry.color);
+    // 名前は打っている本人の入力欄なので、違うときだけ書き換える
+    if (parts.field.value !== entry.label) parts.field.value = entry.label;
+  });
+}
+
+/** 名前を 1 つ聞く（プロファイルの追加と改名）。取り消したら null。 */
+function askName(message, initial) {
+  const answer = window.prompt(`${message}（${MAX_PROFILE_NAME} 文字まで）`, initial);
+  return answer === null ? null : answer;
 }
 
 // ------------------------------------------------- 手直しシート（画面）
@@ -1063,10 +1725,10 @@ function renderLapSheet() {
   const title = $('lap-sheet-title');
   // 進行中は数字が動き続けるので、長さは出さない
   title.textContent = running
-    ? `進行中 ・ ${TYPE_LABEL[entry.type]}`
-    : `${sheetIndex + 1} 本目 ・ ${TYPE_LABEL[entry.type]} ・ ${formatTime(entry.duration)}`;
-  setTypeClass(title, entry.type);
-  for (const button of document.querySelectorAll('button[data-lap-type]')) {
+    ? `進行中 ・ ${typeLabel(entry.type)}`
+    : `${sheetIndex + 1} 本目 ・ ${typeLabel(entry.type)} ・ ${formatTime(entry.duration)}`;
+  setTypeTint(title, entry.type);
+  for (const button of ui.sheetTypes.querySelectorAll('button[data-lap-type]')) {
     button.disabled = button.dataset.lapType === entry.type;
   }
 
@@ -1081,7 +1743,7 @@ function renderLapSheet() {
     // 進行中を前と結合する = 直前の確定を取り消す（種別も前に戻る）
     const last = state.laps[state.laps.length - 1];
     prev.hidden = !last;
-    if (last) prev.textContent = `前のラップ（${TYPE_LABEL[last.type]}）と結合`;
+    if (last) prev.textContent = `前のラップ（${typeLabel(last.type)}）と結合`;
     next.hidden = true;
   } else {
     prev.hidden = !canMergeLap(sheetIndex, 'prev');
@@ -1146,17 +1808,25 @@ function rebuildLapRows() {
 /** ラベル・操作の表示を現在の状態に合わせる。 */
 function refresh() {
   const type = state.currentType;
-  const label = TYPE_LABEL[type];
+  const label = typeLabel(type);
   const running = state.running;
 
   const lapTitle = ui.lapTitle;
   lapTitle.textContent = `${label} ・ ${running ? '計測中' : '停止中'}`;
-  setTypeClass(lapTitle, type);
-  setTypeClass(ui.lap, type);
-  setTypeClass(ui.miniLap, type);
+  setTypeTint(lapTitle, type);
+  setTypeTint(ui.lap, type);
+  setTypeTint(ui.miniLap, type);
   const miniType = ui.miniType;
   miniType.textContent = label;
-  setTypeClass(miniType, type);
+  setTypeTint(miniType, type);
+
+  // 合計の見出しは、その側にある最初のボタンの色を借りる（無ければ淡色のまま）
+  for (const group of GROUPS) {
+    const color = groupColor(group.name);
+    if (color === null) ui[group.head].classList.remove('tinted');
+    else setTint(ui[group.head], color);
+  }
+  ui.keyHint.textContent = keyHint(); // 単キーの案内はボタンの数で変わる
 
   // 結合や「元に戻す」でメモが変わるので、入力欄を state に合わせ直す
   // （同じ文字列のときは触らない。書いている途中のカーソルを飛ばさないため）
@@ -1180,8 +1850,8 @@ function updateClocks() {
   ui.lap.textContent = formatTime(current);
   ui.miniTotal.textContent = formatTime(total);
   ui.miniLap.textContent = formatTime(current);
-  for (const group of SUMMARY_GROUPS) {
-    ui[group.ref].textContent = formatTime(groupSum(group.types));
+  for (const group of GROUPS) {
+    ui[group.ref].textContent = formatTime(groupSum(summaryTypes(group.name)));
   }
   updateAlertHint();
 }
@@ -1295,13 +1965,14 @@ function loadSettings() {
   }
   if (!data || typeof data !== 'object') return;
 
-  if (data.alertMinutes && typeof data.alertMinutes === 'object') {
-    for (const type of LAP_TYPES) {
-      if (typeof data.alertMinutes[type] === 'string') {
-        settings.alertMinutes[type] = data.alertMinutes[type];
-      }
-    }
-  }
+  /* ボタンとプロファイル。プロファイルがまだ無かったころの設定からは、
+   * 種別ごとの通知の分数（alertMinutes）だけを既定のボタンへ引き継ぐ。
+   * 保存は新しい形だけにして、二重の真実を作らない。 */
+  settings.profiles = normalizeProfiles(data.profiles, data.alertMinutes);
+  const index = data.profileIndex;
+  settings.profileIndex = (Number.isInteger(index) && index >= 0
+    && index < settings.profiles.length) ? index : 0;
+
   for (const key of ['alertEnabled', 'alertRepeat', 'autoStartEnabled',
     'autoEndEnabled', 'keepAwake']) {
     if (typeof data[key] === 'boolean') settings[key] = data[key];
@@ -1335,12 +2006,24 @@ function saveSettings() {
   }
 }
 
-/** タブを閉じても記録が消えないよう、計測状態も保存しておく。 */
+/** タブを閉じても記録が消えないよう、計測状態も保存しておく。
+ *
+ * 記録が持つのは種別の識別子だけなので、記録に出てくる種別の定義も一緒に
+ * 保存する。desktop 版は記録自体を保存しないので控えも保存しないが、web 版は
+ * 記録が残る。これがないと、消したボタンや別プロファイルのラップが、
+ * 次に開いたときに名無しになる。
+ */
 function saveSession() {
   try {
+    const types = {};
+    for (const id of recordedTypes()) {
+      const { label, color, group } = typeInfo(id);
+      types[id] = { label, color, group };
+    }
     localStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 1,
+      version: SESSION_VERSION,
       savedAt: Date.now(),
+      types,
       running: state.running,
       totalBase: state.totalBase,
       lapBase: state.lapBase,
@@ -1364,18 +2047,30 @@ function loadSession() {
   } catch (error) {
     return;
   }
-  if (!data || data.version !== 1) return;
+  // 版 1 は種別の控えを持たない（種別は既定の 3 つだけだったので、そのまま読める）
+  if (!data || (data.version !== 1 && data.version !== SESSION_VERSION)) return;
+
+  // 記録に出てくる種別を控えに戻す（今のボタンに無いものも名前と色を保つ）
+  if (data.types && typeof data.types === 'object') {
+    for (const [id, info] of Object.entries(data.types)) {
+      if (!info || typeof info !== 'object') continue;
+      rememberType(id, info.label, info.color, info.group);
+    }
+  }
 
   state.totalBase = Number(data.totalBase) || 0;
   state.lapBase = Number(data.lapBase) || 0;
-  state.currentType = LAP_TYPES.includes(data.currentType) ? data.currentType : WORK;
+  state.currentType = (typeof data.currentType === 'string' && data.currentType)
+    ? data.currentType : typeIds()[0];
   state.lapNote = typeof data.lapNote === 'string' ? data.lapNote : '';
   state.laps = Array.isArray(data.laps)
-    ? data.laps.filter((entry) => entry && LAP_TYPES.includes(entry.type)
-        && Number.isFinite(entry.duration))
+    ? data.laps.filter((entry) => entry && typeof entry.type === 'string'
+        && entry.type && Number.isFinite(entry.duration))
       // メモは後から足したので、それより前に保存されたラップには無い
       .map((entry) => ({ ...entry, note: String(entry.note ?? '') }))
     : [];
+  // 控えにも今のボタンにも無い種別（古い保存など）は、識別子を名前にして残す
+  for (const id of recordedTypes()) rememberType(id, id);
   recomputeSums(); // 保存された合計は当てにせず、ラップから数え直す
   state.startedAt = Number(data.startedAt) || null;
   state.lapStartedAt = Number(data.lapStartedAt) || null;
@@ -1537,14 +2232,12 @@ function onKeyDown(event) {
   }
   if (event.ctrlKey || event.altKey || event.metaKey) return;
 
-  const actions = {
-    ' ': toggleRun,
-    w: () => lap(WORK),
-    b: () => lap(BREAK),
-    l: () => lap(LONG_BREAK),
-    m: openMini,
-  };
-  const action = actions[event.key.length === 1 ? event.key.toLowerCase() : event.key];
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const actions = { ' ': toggleRun, m: openMini };
+  /* ラップは並び順の 1〜n で押す。既定の 3 つが残っているうちは、
+   * これまでどおり W / B / L でも押せる（消したボタンのキーは効かない）。 */
+  const type = lapKeys()[key];
+  const action = type !== undefined ? () => lap(type) : actions[key];
   if (!action) return;
   event.preventDefault();
   action();
@@ -1553,6 +2246,7 @@ function onKeyDown(event) {
 function init() {
   cacheUi();
   loadSettings();
+  rememberTypes(); // 記録を読む前に、今のボタンを控えへ（名前と色の引き元）
   setTheme(settings.theme);
   loadSession();
 
@@ -1561,9 +2255,6 @@ function init() {
   }
   for (const button of document.querySelectorAll('button[data-theme]')) {
     button.addEventListener('click', () => setTheme(button.dataset.theme));
-  }
-  for (const button of document.querySelectorAll('button[data-lap]')) {
-    button.addEventListener('click', () => lap(button.dataset.lap));
   }
   ui.start.addEventListener('click', toggleRun);
   ui.miniStart.addEventListener('click', toggleRun);
@@ -1586,9 +2277,6 @@ function init() {
     event.preventDefault();
     openLapSheet(null);
   });
-  for (const button of document.querySelectorAll('button[data-lap-type]')) {
-    button.addEventListener('click', () => sheetSetType(button.dataset.lapType));
-  }
   $('merge-prev').addEventListener('click', () => sheetMerge('prev'));
   $('merge-next').addEventListener('click', () => sheetMerge('next'));
   $('undo').addEventListener('click', () => sheetHistory(undo));
@@ -1626,12 +2314,28 @@ function init() {
   bindToggle('auto-end-enabled', 'autoEndEnabled', resetAutoSchedule);
   bindToggle('keep-awake', 'keepAwake', applyKeepAwake);
 
-  for (const type of LAP_TYPES) {
-    bindField(`min-${type}`,
-      () => settings.alertMinutes[type],
-      (value) => { settings.alertMinutes[type] = value; },
-      resetAlert);
-  }
+  // ボタンとプロファイル（ボタンごとの通知の分は renderMinutes が受け持つ）
+  $('profile-add').addEventListener('click', () => {
+    const name = askName('新しいプロファイルの名前', NEW_PROFILE_NAME);
+    if (name !== null) addProfile(name, false);
+  });
+  $('profile-copy').addEventListener('click', () => {
+    const name = askName('複製したプロファイルの名前', NEW_PROFILE_NAME);
+    if (name !== null) addProfile(name, true);
+  });
+  $('profile-rename').addEventListener('click', () => {
+    const index = settings.profileIndex;
+    const name = askName('プロファイルの名前', settings.profiles[index].name);
+    if (name !== null) renameProfile(index, name);
+  });
+  $('profile-remove').addEventListener('click', () => {
+    const index = settings.profileIndex;
+    if (!window.confirm(`「${settings.profiles[index].name}」を消します。`
+      + 'ボタンの並びと通知の分数も消えます。\n記録したラップは残ります。')) return;
+    removeProfile(index);
+  });
+  $('type-add').addEventListener('click', addType);
+
   bindField('min-repeat',
     () => settings.alertRepeatMinutes,
     (value) => { settings.alertRepeatMinutes = value; },
@@ -1646,6 +2350,13 @@ function init() {
     resetAutoSchedule);
 
   applyFeedbackLinks();
+  // ボタンに関わる部分（ラップのボタン・分・ミニ・プロファイル・一覧）を組み立てる
+  renderLapButtons();
+  renderSheetTypes();
+  renderMiniKeys();
+  renderMinutes();
+  renderProfiles();
+  renderTypeRows();
   bindVolume();
   buildSounds();
   loadCustomSound(); // 音声ファイルの読み込みを待たずに画面は出す

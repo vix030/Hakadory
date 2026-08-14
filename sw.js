@@ -8,7 +8,7 @@
  * まず取りに行き、取れたらキャッシュを差し替え、取れなかったときだけ
  * キャッシュを返す。
  */
-const CACHE = 'hakadory-v1';
+const CACHE = 'hakadory-v2';
 const ASSETS = [
   './',
   'index.html',

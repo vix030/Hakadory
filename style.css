@@ -1,5 +1,8 @@
 /* Hakadory (web) - 面や枠は使わず、余白と 1px の直線だけで区切る */
 
+/* ボタンの色は 6 色の見本（--blue 〜 --cyan）から選ぶ。実際の色は配色ごとに
+ * 持ち、選択中・入力中などを示す色は --accent に固定する（ボタンの色を
+ * 変えても UI の色が動かないよう切り離す）。 */
 :root,
 :root[data-theme="standard"] {
   --bg: #34363c;
@@ -9,9 +12,13 @@
   --line: #4c5058;
   --start: #7ed2a0;
   --pause: #ef978a;
-  --work: #93c1ff;
-  --break: #f7c470;
-  --long: #c3a4ff;
+  --blue: #93c1ff;
+  --amber: #f7c470;
+  --purple: #c3a4ff;
+  --green: #a5d97a;
+  --pink: #f7a4c2;
+  --cyan: #7fd0e6;
+  --accent: var(--blue);
 }
 
 :root[data-theme="dark"] {
@@ -22,9 +29,12 @@
   --line: #2c2f37;
   --start: #7ad9a0;
   --pause: #f09c8e;
-  --work: #96c2ff;
-  --break: #ffc673;
-  --long: #c6a6ff;
+  --blue: #96c2ff;
+  --amber: #ffc673;
+  --purple: #c6a6ff;
+  --green: #a9de7d;
+  --pink: #ffa9c6;
+  --cyan: #83d6ec;
 }
 
 :root[data-theme="light"] {
@@ -35,9 +45,12 @@
   --line: #d3d7de;
   --start: #2b8f5d;
   --pause: #c1503f;
-  --work: #2a6bce;
-  --break: #a56a12;
-  --long: #6f47c7;
+  --blue: #2a6bce;
+  --amber: #a56a12;
+  --purple: #6f47c7;
+  --green: #4b7a17;
+  --pink: #b23a6b;
+  --cyan: #10697e;
 }
 
 * { box-sizing: border-box; }
@@ -65,10 +78,6 @@ body {
   margin: 0;
   white-space: nowrap;
 }
-
-.type-work { color: var(--work); }
-.type-break { color: var(--break); }
-.type-long { color: var(--long); }
 
 /* ------------------------------------------------------------------ 通常表示 */
 
@@ -130,6 +139,11 @@ body {
 .caption-small { font-size: 11px; }
 .pad-left { margin-left: 8px; }
 
+/* ボタンの色を流し込む先。色ごとのクラスを 6 つ置く代わりに、JS が --tint へ
+ * 見本の色（var(--blue) など）を入れる。淡色の .caption より後ろに置いて、
+ * 種別の色が勝つようにしてある（見出しは何のラップかを示す色にする）。 */
+.tinted { color: var(--tint, var(--fg)); }
+
 .clock-total { font-size: 42px; line-height: 1.15; padding-top: 2px; }
 .clock-lap { font-size: 32px; line-height: 1.15; padding-top: 2px; }
 .clock-sum { font-size: 15px; padding-top: 2px; }
@@ -181,9 +195,12 @@ a:focus-visible,
 .action-pause { color: var(--pause); }
 .action:hover { background: var(--hover); }
 
+/* ラップのボタンは 1 行 3 つ。その行が 1 つ・2 つで終わるときに右を空けたまま
+ * にしないよう、列は 3 ではなく 6 で刻み、行の個数に応じて span で占めさせる
+ * （6 は 1・2・3 のどれでも割り切れる）。span は app.js が入れる。 */
 .lap-buttons {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   padding-top: 10px;
 }
@@ -196,7 +213,7 @@ a:focus-visible,
 }
 
 .text + .text { margin-left: 16px; }
-.text:hover { color: var(--work); border-bottom-color: currentColor; }
+.text:hover { color: var(--accent); border-bottom-color: currentColor; }
 
 /* 外部リンク: 補助的な操作（.text）と同じ見た目にそろえる（文字の大きさは周りに合わせる） */
 .link {
@@ -205,7 +222,7 @@ a:focus-visible,
   text-decoration: none;
 }
 
-.link:hover { color: var(--work); border-bottom-color: currentColor; }
+.link:hover { color: var(--accent); border-bottom-color: currentColor; }
 
 /* 切替: ●（有効）／○（無効）の印 + 下線 */
 .toggle {
@@ -214,7 +231,7 @@ a:focus-visible,
 }
 
 .toggle::before { content: "○ "; }
-.toggle[aria-pressed="true"] { color: var(--work); }
+.toggle[aria-pressed="true"] { color: var(--accent); }
 .toggle[aria-pressed="true"]::before { content: "● "; }
 .toggle:hover { border-bottom-color: currentColor; }
 
@@ -226,7 +243,7 @@ a:focus-visible,
   padding-bottom: 2px;
 }
 
-.choice.is-selected { color: var(--work); border-bottom-color: var(--work); }
+.choice.is-selected { color: var(--accent); border-bottom-color: var(--accent); }
 .choice:hover { color: var(--fg); }
 
 .field {
@@ -242,7 +259,7 @@ a:focus-visible,
 }
 
 .field-time { width: 4.4em; text-align: center; }
-.field:focus { border-bottom-color: var(--work); }
+.field:focus { border-bottom-color: var(--accent); }
 
 /* メモは長さが決まらないので、余った幅をぜんぶ使う */
 .field-note { flex: 1; width: auto; min-width: 0; text-align: left; }
@@ -340,7 +357,7 @@ a:focus-visible,
 .slider {
   width: 140px;
   margin-left: 4px;
-  accent-color: var(--work);
+  accent-color: var(--accent);
 }
 
 #volume-value { min-width: 3em; } /* 数字の桁でつまみが動かないように */
@@ -359,7 +376,7 @@ a:focus-visible,
   font-size: 12px;
 }
 
-.day.is-on { color: var(--work); border-bottom-color: var(--work); }
+.day.is-on { color: var(--accent); border-bottom-color: var(--accent); }
 .day:hover { color: var(--fg); }
 
 .note {
@@ -368,6 +385,57 @@ a:focus-visible,
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* ------------------------------------------- ボタンとプロファイル（設定タブ） */
+
+.profiles,
+.profile-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 8px;
+}
+
+.profiles .choice {
+  max-width: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.types-head { padding-top: 16px; }
+
+/* 1 ボタン = 1 行。狭い画面では名前の下に色・集計・並べ替えが折り返す */
+.type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.type-row .field-label { width: 5.4em; text-align: left; }
+.type-row .groups,
+.type-row .swatches,
+.type-row .type-tools { display: inline-flex; align-items: center; gap: 6px; }
+.type-row .type-tools { margin-left: auto; gap: 14px; }
+.type-row .text + .text { margin-left: 0; }
+
+/* 色の見本。選んでいるものだけ下線を引く（押せる箇所には下線を付ける決まり） */
+.swatch {
+  padding: 0 1px;
+  border-bottom: 2px solid transparent;
+  color: var(--tint, var(--fg));
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.swatch.is-selected { border-bottom-color: currentColor; }
+.swatch:hover { border-bottom-color: currentColor; }
+
+#type-add { display: inline-block; margin-top: 12px; }
 
 /* ------------------------------------------------------------------ 使い方タブ */
 
@@ -405,11 +473,11 @@ a:focus-visible,
 .help-terms { gap: 8px; }
 .help-keys { grid-template-columns: auto 1fr; gap: 4px 16px; align-items: baseline; }
 
-.help-terms dt { color: var(--work); }
+.help-terms dt { color: var(--accent); }
 .help-terms dd { margin: 0; }
 
 .help-keys dt {
-  color: var(--work);
+  color: var(--accent);
   font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
 }
 
@@ -437,7 +505,7 @@ a:focus-visible,
 
 .log-version {
   margin: 0;
-  color: var(--work);
+  color: var(--accent);
   font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
   font-size: 14px;
 }
@@ -474,7 +542,7 @@ a:focus-visible,
 
 .tag-add { color: var(--start); }
 .tag-fix { color: var(--pause); }
-.tag-change { color: var(--break); }
+.tag-change { color: var(--amber); }
 
 .foot {
   display: flex;
@@ -574,12 +642,6 @@ body.inline-mini #full { display: none; }
   font-size: 11px;
   padding-top: 14px;
 }
-
-/* 見出しは .caption の淡色ではなく種別の色にする（どのラップを直しているか示す）。
- * .caption が .type-* より後ろにあるので、勝てる強さで指定し直す。 */
-.sheet-body .caption.type-work { color: var(--work); }
-.sheet-body .caption.type-break { color: var(--break); }
-.sheet-body .caption.type-long { color: var(--long); }
 
 /* シートの中のメモ入力欄（確定したラップを直すとき） */
 .sheet-field {

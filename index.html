@@ -34,10 +34,10 @@
 
     <div class="block">
       <div class="row">
-        <p id="lap-title" class="caption type-work tappable" role="button" tabindex="0" title="押すと種別を直せます">作業 ・ 停止中</p>
+        <p id="lap-title" class="caption tinted tappable" role="button" tabindex="0" title="押すと種別を直せます">作業 ・ 停止中</p>
         <p id="alert-hint" class="caption caption-small"></p>
       </div>
-      <p id="lap" class="clock clock-lap type-work">0:00:00</p>
+      <p id="lap" class="clock clock-lap tinted">0:00:00</p>
       <!-- 進行中のラップに添えるメモ。次のラップを押した時点でそのラップへ移る -->
       <div class="lap-note">
         <label class="caption caption-small" for="lap-note">メモ</label>
@@ -45,13 +45,14 @@
       </div>
     </div>
 
+    <!-- 合計はボタンをいくつ足しても「作業」「休憩」の 2 列のまま（どちらに足すかはボタンごと） -->
     <div class="block sums">
       <div>
-        <p class="caption caption-small type-work">作業</p>
+        <p id="sum-work-head" class="caption caption-small tinted">作業</p>
         <p id="sum-work" class="clock clock-sum">0:00:00</p>
       </div>
       <div>
-        <p class="caption caption-small type-break">休憩（長休憩含む）</p>
+        <p id="sum-break-head" class="caption caption-small tinted">休憩</p>
         <p id="sum-break" class="clock clock-sum">0:00:00</p>
       </div>
     </div>
@@ -60,11 +61,8 @@
 
     <div class="block">
       <button type="button" id="start" class="action action-start action-wide">開始</button>
-      <div class="lap-buttons">
-        <button type="button" class="action type-work" data-lap="work">作業</button>
-        <button type="button" class="action type-break" data-lap="break">休憩</button>
-        <button type="button" class="action type-long" data-lap="long_break">長休憩</button>
-      </div>
+      <!-- ラップのボタンは設定タブで増減・改名できるので、app.js が組み立てる -->
+      <div class="lap-buttons" id="lap-buttons"></div>
     </div>
 
     <div class="block block-list">
@@ -87,7 +85,7 @@
 
     <div class="block foot">
       <button type="button" class="text" id="compact">ミニ表示</button>
-      <span class="keys">Space  W  B  L  M  ⌃Z/Y</span>
+      <span class="keys" id="key-hint">Space  1-3  M  ⌃Z/Y</span>
     </div>
   </section>
 
@@ -101,11 +99,8 @@
         </span>
         <button type="button" class="text" id="preview">試聴</button>
       </div>
-      <div class="minutes">
-        <span><span class="caption caption-small">作業</span><input class="field type-work" id="min-work" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
-        <span><span class="caption caption-small">休憩</span><input class="field type-break" id="min-break" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
-        <span><span class="caption caption-small">長休憩</span><input class="field type-long" id="min-long_break" inputmode="numeric" size="3"><span class="caption caption-small">分</span></span>
-      </div>
+      <!-- 分はボタンごとなので、ボタンの数だけ app.js が並べる -->
+      <div class="minutes" id="minutes"></div>
       <div class="repeat">
         <button type="button" class="toggle" id="alert-repeat">繰り返す</button>
         <input class="field" id="min-repeat" inputmode="numeric" size="3">
@@ -125,6 +120,31 @@
         <button type="button" class="text" id="sound-clear" hidden>読み込んだ音を外す</button>
         <input type="file" id="sound-file" accept="audio/*" hidden>
       </div>
+    </div>
+
+    <hr class="rule">
+
+    <!-- ラップのボタンとプロファイル。中身は app.js が組み立てる -->
+    <div class="block">
+      <div class="row">
+        <span class="caption">プロファイル</span>
+        <span class="caption caption-small">ボタンの並びと通知までの分をひとまとめにします</span>
+      </div>
+      <div class="profiles" id="profiles"></div>
+      <div class="profile-tools">
+        <button type="button" class="text" id="profile-add">追加</button>
+        <button type="button" class="text" id="profile-copy">現在を複製</button>
+        <button type="button" class="text" id="profile-rename">名前を変更</button>
+        <button type="button" class="text" id="profile-remove">削除</button>
+      </div>
+
+      <div class="row types-head">
+        <span class="caption">ボタン</span>
+        <span class="caption caption-small" id="type-count"></span>
+      </div>
+      <div id="type-rows"></div>
+      <button type="button" class="text" id="type-add">＋ ボタンを追加</button>
+      <p class="note">消したボタンで記録したラップは、名前と色を保ったまま一覧と <code class="help-code">.md</code> に残ります。通知までの分は上の「通知音」で決めます。</p>
     </div>
 
     <hr class="rule">
@@ -176,7 +196,7 @@
     <div class="help">
       <div class="block">
         <p class="caption">これは何か</p>
-        <p class="help-text">作業と休憩を区別して測るストップウォッチ式のポモドーロタイマーです。ラップごとに種別（作業・休憩・長休憩）を持たせ、種別ごとの合計と割合をその場で集計します。</p>
+        <p class="help-text">作業と休憩を区別して測るストップウォッチ式のポモドーロタイマーです。ラップごとに種別（作業・休憩・長休憩など）を持たせ、種別ごとの合計と割合をその場で集計します。ボタンは設定タブで増やしたり、名前や色を変えたりできます。</p>
         <p class="help-text">集中状態を無理に中断せず、ポモドーロテクニックの周期を維持することを目的としています。乗っているときは続ければよく、疲れたら早めに休憩を押せばいい。通知音を鳴らしても、こちらが押すまで計測は続きます。</p>
         <p class="help-text">記録は <code class="help-code">.md</code> に書き出せます。ブラウザの中の記録はリセットや履歴の削除で消えるので、残したい日は書き出しておいてください。</p>
       </div>
@@ -192,6 +212,37 @@
           <li>終わったら「.md 書き出し」で記録を保存し、「リセット」で次に備えます。</li>
           <li>押し間違えたら <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Z</kbd> で元に戻せます。戻しすぎたら <kbd class="help-code">Ctrl</kbd> + <kbd class="help-code">Y</kbd> です。あとから気づいたぶんは「ラップの手直し」を見てください。</li>
         </ol>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block">
+        <p class="caption">ボタンとプロファイル（設定タブ）</p>
+        <p class="help-text">設定タブの「ボタン」から、ラップのボタンを増やしたり、名前や色を変えたりできます。「会議」「雑務」のように、自分の仕事の区切りに合わせて足してください。</p>
+        <dl class="help-terms">
+          <dt>名前</dt>
+          <dd>ボタンに出る名前（5 文字まで）。<code class="help-code">.md</code> にもこの名前で残ります。同じ名前が並ぶときは末尾に数字が付きます。</dd>
+          <dt>色</dt>
+          <dd>6 色の見本から選びます。配色（標準／ダーク／ライト）を変えても同じ色味で出ます。</dd>
+          <dt>集計</dt>
+          <dd>そのボタンを「作業」と「休憩」のどちらに足すか。画面の合計と <code class="help-code">.md</code> の集計がこれで決まります。</dd>
+          <dt>↑ ↓ ・ 削除</dt>
+          <dd>並び順の入れ替えと削除。単キーの <kbd class="help-code">1</kbd>〜<kbd class="help-code">6</kbd> はこの順に対応します。最後の 1 つは消せません。</dd>
+        </dl>
+        <ul class="help-list">
+          <li>ボタンは <b>6 つまで</b>です。1 行 3 つで並べ、4 つ目からは下の行に折り返します。行が 1 つ・2 つで終わるときは、その行いっぱいまで広がります。</li>
+          <li>作業・休憩・長休憩も他のボタンと同じで、名前・色・集計する側を変えられます。</li>
+          <li><b>ボタンを消しても、そのボタンで記録済みのラップは消えません。</b>名前と色を保ったまま一覧に残り、<code class="help-code">.md</code> にも出ます。</li>
+          <li>通知までの分はボタンごとで、設定タブの「通知音」に並びます。</li>
+          <li>自動開始が使うのは、集計が「作業」側のいちばん左のボタンです。</li>
+        </ul>
+        <p class="help-text"><b>プロファイル</b>は、ボタンの並びと通知までの分をひとまとめにしたものです。「仕事」「勉強」のように作り分けて、名前を押すだけで切り替えられます。</p>
+        <ul class="help-list">
+          <li>数に上限はありません。「追加」は既定のボタン 3 つから、「現在を複製」は今のボタンを写して作ります。名前は 8 文字までです。</li>
+          <li><b>切り替えても、測っている時間とラップの記録はそのまま残ります。</b>切り替え前のボタンで記録したラップも、名前と色を保ったまま一覧に残ります。</li>
+          <li>音・音量・配色・自動開始はプロファイルに含めず、アプリ全体で共通です。</li>
+          <li>最後の 1 つは削除できません。</li>
+        </ul>
       </div>
 
       <hr class="rule">
@@ -251,7 +302,7 @@
           <dt>大きい時計</dt>
           <dd>進行中のラップの経過。見出しの色と文字で、いまの種別と計測中か停止中かが分かります。</dd>
           <dt>作業／休憩</dt>
-          <dd>種別ごとの合計。進行中のラップの分も含みます。休憩には長休憩も足しています。</dd>
+          <dd>集計する側ごとの合計。進行中のラップの分も含みます。どちらに足すかはボタンごとに決められます（既定では長休憩も休憩側です）。</dd>
           <dt>ラップ一覧</dt>
           <dd>確定したラップを上から順に。「ラップ」はそのラップの長さ、「通過」は計測開始からの積算です。</dd>
           <dt>メモ</dt>
@@ -265,9 +316,8 @@
         <p class="caption">キー操作</p>
         <dl class="help-keys">
           <dt>Space</dt><dd>開始／一時停止</dd>
-          <dt>W</dt><dd>作業ラップに切り替える</dd>
-          <dt>B</dt><dd>休憩ラップに切り替える</dd>
-          <dt>L</dt><dd>長休憩ラップに切り替える</dd>
+          <dt>1 〜 6</dt><dd>その並び順のラップに切り替える（ボタンの数だけ）</dd>
+          <dt>W / B / L</dt><dd>作業／休憩／長休憩に切り替える（そのボタンが残っている間）</dd>
           <dt>M</dt><dd>ミニ表示にする</dd>
           <dt>Ctrl + Z</dt><dd>直前のラップ操作を元に戻す</dd>
           <dt>Ctrl + Y</dt><dd>戻した操作をやり直す（Ctrl + Shift + Z も同じ）</dd>
@@ -280,7 +330,7 @@
       <div class="block">
         <p class="caption">通知音（設定タブ）</p>
         <ul class="help-list">
-          <li>ラップが始まってから指定した分で鳴ります。分は種別ごとに決められます。空欄や 0 のときは鳴りません。</li>
+          <li>ラップが始まってから指定した分で鳴ります。分はボタンごとに決められます。空欄や 0 のときは鳴りません。</li>
           <li>「繰り返す」を入れると、その後も一定の間隔で鳴り続けます。分を指定しなければ最初と同じ間隔です。</li>
           <li>「音声ファイルを選ぶ」で、手持ちの音（mp3 など）も通知音にできます。5MB まで、長いものは 20 秒で止まります。</li>
           <li>読み込んだ音声はこのブラウザの中に残るので、次に開いたときもそのまま使えます。「読み込んだ音を外す」で消せます。</li>
@@ -356,6 +406,23 @@
   -->
   <section id="page-log" class="page" hidden>
     <div class="help">
+      <div class="block log-entry">
+        <div class="log-head">
+          <p class="log-version">v1.5</p>
+          <time class="log-date caption caption-small" datetime="2026-08-13">2026-08-13</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>ラップのボタンを設定タブで編集できるようにしました。6 つまで増やせて、名前・色・集計する側・通知までの分をボタンごとに決められます。</li>
+          <li><span class="log-tag tag-add">追加</span>ボタンの並びと通知までの分をまとめた「プロファイル」を追加しました。「仕事」「勉強」のように作り分けて切り替えられます。切り替えても記録は残ります。</li>
+          <li><span class="log-tag tag-add">追加</span>単キーの <kbd class="help-code">1</kbd>〜<kbd class="help-code">6</kbd> でも、並び順のラップに切り替えられるようにしました。<kbd class="help-code">W</kbd> / <kbd class="help-code">B</kbd> / <kbd class="help-code">L</kbd> も残しています。</li>
+          <li><span class="log-tag tag-change">変更</span>作業・休憩・長休憩も、他のボタンと同じように名前や色を変えられるようにしました。</li>
+          <li><span class="log-tag tag-change">変更</span>ラップのボタンが 1 行に 1 つ・2 つしかないときは、その行いっぱいまで広がるようにしました。</li>
+          <li><span class="log-tag tag-change">変更</span><code class="help-code">.md</code> の集計を、ボタン 1 つずつの行と「作業計」「休憩計」に分けました。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
       <div class="block log-entry">
         <div class="log-head">
           <p class="log-version">v1.4</p>
@@ -444,14 +511,12 @@
     </span>
   </div>
   <div class="mini-body">
-    <span id="mini-lap" class="clock type-work">0:00:00</span>
-    <span id="mini-type" class="caption caption-small type-work">作業</span>
+    <span id="mini-lap" class="clock tinted">0:00:00</span>
+    <span id="mini-type" class="caption caption-small tinted">作業</span>
   </div>
-  <div class="mini-keys">
+  <!-- 「開始」も同じ行に置き、ラップのボタンは app.js が後ろに並べる -->
+  <div class="mini-keys" id="mini-keys">
     <button type="button" id="mini-start" class="action action-start">開始</button>
-    <button type="button" class="action type-work" data-lap="work">作業</button>
-    <button type="button" class="action type-break" data-lap="break">休憩</button>
-    <button type="button" class="action type-long" data-lap="long_break">長休憩</button>
   </div>
 </div>
 
@@ -459,13 +524,9 @@
 <div id="lap-sheet" class="sheet" hidden>
   <div class="sheet-back" id="lap-sheet-back"></div>
   <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="lap-sheet-title">
-    <p id="lap-sheet-title" class="caption type-work">1 本目 ・ 作業</p>
+    <p id="lap-sheet-title" class="caption tinted">1 本目 ・ 作業</p>
     <p class="sheet-note">種別を変える</p>
-    <div class="lap-buttons">
-      <button type="button" class="action type-work" data-lap-type="work">作業</button>
-      <button type="button" class="action type-break" data-lap-type="break">休憩</button>
-      <button type="button" class="action type-long" data-lap-type="long_break">長休憩</button>
-    </div>
+    <div class="lap-buttons" id="sheet-types"></div>
     <!-- 確定したラップのメモ。進行中のラップは大きい時計の下で書くので、そのときは隠す -->
     <div id="note-row">
       <p class="sheet-note">メモ</p>
