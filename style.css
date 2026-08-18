@@ -273,6 +273,16 @@ a:focus-visible,
   padding-top: 8px;
 }
 
+/* 受け取っている進行中タスク（Dandory との連携中だけ出る） */
+.task-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
 /* ------------------------------------------------------------------ ラップ一覧 */
 
 .list-wrap {

@@ -102,6 +102,18 @@ const FEEDBACK_URL = 'https://forms.gle/g7pt1QbgeLv2eCLP6';
 
 const THEME_NAMES = ['standard', 'dark', 'light'];
 const DEFAULT_THEME = 'standard';
+/* タスク管理（Dandory）との連携。desktop 版と同じ形の JSON を、ファイルではなく
+ * localStorage に置く。同じオリジンに置いた別ページどうしなら、これだけでつながる。
+ * 相手が居なくても、連携を切っていても、計測のふるまいは何も変わらない。 */
+const LINK_VERSION = 1;
+const LINK_KEY = 'Hakadory.link';   // Dandory が書き、こちらは読むだけ
+const LAPS_KEY = 'Hakadory.laps';   // こちらが足し、Dandory が読むだけ
+const LINK_SELECT = 'select';       // 進行中タスクを差し替えるだけ
+const LINK_START = 'start';         // そのうえでラップも切る
+const LAPS_MAX = 2000;              // 実績がこれを超えたら
+const LAPS_KEEP = 500;              // 新しいこの数だけ残して書き直す
+const LINK_POLL_MS = 1000;          // storage イベントが届かない場合に見に行く間隔
+
 const SETTINGS_KEY = 'Hakadory.settings';
 const SESSION_KEY = 'Hakadory.session';
 const SESSION_VERSION = 2; // 2 で種別の控え（types）が付いた。1 も読める
@@ -160,7 +172,7 @@ const UI_IDS = [
   'auto-end-hint', 'keep-awake-hint', 'toast', 'key-hint', 'lap-buttons',
   'sheet-types', 'minutes', 'profiles', 'type-rows', 'type-count',
   'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
-  'mini-keys',
+  'mini-keys', 'task-row', 'task-name', 'link-hint',
 ];
 
 function cacheUi() {
@@ -285,6 +297,10 @@ const state = {
   lapStartedAt: null,                         // 現在ラップ開始（壁時計、ミリ秒）
   autoStartDone: null,
   autoEndDone: null,
+  task: null,       // Dandory から受け取った進行中タスク { id, title }
+  linkSeen: false,  // 一度でも読んだか（開く前に置かれた start を実行しない）
+  linkSerial: 0,    // この読み込みでの実績の通し番号（uid に使う）
+  linkSession: Date.now(),
 };
 
 const settings = {
@@ -304,6 +320,8 @@ const settings = {
   autoEndTime: DEFAULT_AUTO_END_TIME,
   autoStartDays: [...DEFAULT_AUTO_START_DAYS],
   keepAwake: false,
+  linkEnabled: true, // タスク連携（Dandory との受け渡し）
+  linkSeq: 0,        // 最後に処理した link の通し番号
 };
 
 /* 一度でも見た種別を控えておく（消したボタン、切り替える前のプロファイル、
@@ -621,6 +639,7 @@ function lap(type) {
       endedAt: Date.now(),
       note: state.lapNote.trim(),
     });
+    reportLap(state.laps[state.laps.length - 1]);
     rebuildLapRows();
   }
 
@@ -1840,6 +1859,7 @@ function refresh() {
   }
 
   updateAutoHints();
+  renderTask();
   updateClocks();
 }
 
@@ -1954,6 +1974,134 @@ async function applyKeepAwake() {
   }
 }
 
+// ------------------------------------------------------ タスク連携（Dandory）
+
+/* こちらは link を読み、laps に足すだけ。書き手はそれぞれ 1 つで、
+ * 相手が居なくても、連携を切っていても、計測のふるまいは変わらない。
+ * 鍵の中身は desktop 版の link.json / laps.jsonl と同じ形にそろえてある。 */
+
+/** 壁時計のミリ秒を "2026-08-18T10:00:00" にする（時間帯は付けない）。 */
+function linkStamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/** Dandory が置いた進行中タスクを読む。読めなければ null。 */
+function readLink() {
+  let data;
+  try {
+    data = JSON.parse(localStorage.getItem(LINK_KEY) || 'null');
+  } catch (error) {
+    return null;
+  }
+  if (!data || typeof data !== 'object' || data.version !== LINK_VERSION) return null;
+  const seq = Number(data.seq);
+  if (!Number.isInteger(seq)) return null;
+  let task = null;
+  if (data.task && typeof data.task === 'object') {
+    const title = String(data.task.title ?? '').trim();
+    // 名前の無いタスクは受け取らない（何のラップか分からなくなるため）
+    if (title) task = { id: String(data.task.id ?? '').trim(), title };
+  }
+  return {
+    seq,
+    action: data.action === LINK_START ? LINK_START : LINK_SELECT,
+    lapType: String(data.lap_type ?? '').trim(),
+    task,
+  };
+}
+
+/** 確定したラップを実績として 1 件足す。書けなくても計測は続ける。 */
+function appendLapRecord(record) {
+  let list;
+  try {
+    list = JSON.parse(localStorage.getItem(LAPS_KEY) || '[]');
+  } catch (error) {
+    list = [];
+  }
+  if (!Array.isArray(list)) list = [];
+  list.push(record);
+  // 際限なく育たないよう、新しいぶんだけ残す。読む側は uid で取り込み済みを落とす
+  if (list.length > LAPS_MAX) list = list.slice(-LAPS_KEEP);
+  try {
+    localStorage.setItem(LAPS_KEY, JSON.stringify(list));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/** 確定したラップを Dandory へ返す。返すのは確定した時点の姿。 */
+function reportLap(entry) {
+  if (!settings.linkEnabled) return false;
+  state.linkSerial += 1;
+  const info = typeInfo(entry.type);
+  return appendLapRecord({
+    version: LINK_VERSION,
+    uid: `${state.linkSession}-${state.linkSerial}`,
+    task_id: state.task ? state.task.id : '',
+    task_title: state.task ? state.task.title : '',
+    type: entry.type,
+    label: info.label,
+    group: info.group ?? DEFAULT_GROUP,
+    seconds: Math.round(entry.duration * 1000) / 1000,
+    started_at: linkStamp(entry.startedAt),
+    ended_at: linkStamp(entry.endedAt),
+    note: entry.note ?? '',
+  });
+}
+
+/** 進行中のタスクを覚える。メモが空ならタスク名を入れておく。 */
+function setTask(task) {
+  state.task = task;
+  // 書きかけのメモは上書きしない（打った内容の方が具体的なため）
+  if (task !== null && state.lapNote.trim() === '') state.lapNote = task.title;
+  renderTask();
+}
+
+/** 進行中タスクの行を出し入れする（受け取っていない間は出さない）。 */
+function renderTask() {
+  if (!ui.taskRow) return;
+  const shown = settings.linkEnabled && state.task !== null;
+  ui.taskRow.hidden = !shown;
+  if (shown) ui.taskName.textContent = state.task.title;
+  if (ui.linkHint) {
+    ui.linkHint.textContent = settings.linkEnabled
+      ? (state.task ? `受け取り中: ${state.task.title}` : 'タスク待ち')
+      : '';
+  }
+}
+
+/** Dandory が置いた指示を取りに行く。storage イベントと時計の両方から呼ぶ。 */
+function pollLink() {
+  if (!settings.linkEnabled) return;
+  const data = readLink();
+  if (data === null || data.seq <= settings.linkSeq) return;
+  const first = !state.linkSeen;
+  state.linkSeen = true;
+  settings.linkSeq = data.seq;
+  // 開く前に置かれていた start で、意図しないラップを切らない
+  if (data.action === LINK_START && !first) {
+    lap(hasType(data.lapType) ? data.lapType : firstWorkType());
+  }
+  setTask(data.task);
+  refresh();
+  saveSettings();
+  saveSession();
+}
+
+/** 連携の入り切り。切ったときは受け取っていたタスクも忘れる。 */
+function onLinkToggled() {
+  if (!settings.linkEnabled) state.task = null;
+  state.linkSeen = false;
+  renderTask();
+  refresh();
+  if (settings.linkEnabled) pollLink();
+}
+
 // ---------------------------------------------------------------- 設定の保存
 
 function loadSettings() {
@@ -1973,8 +2121,10 @@ function loadSettings() {
   settings.profileIndex = (Number.isInteger(index) && index >= 0
     && index < settings.profiles.length) ? index : 0;
 
+  const seq = data.linkSeq;
+  if (Number.isInteger(seq) && seq >= 0) settings.linkSeq = seq;
   for (const key of ['alertEnabled', 'alertRepeat', 'autoStartEnabled',
-    'autoEndEnabled', 'keepAwake']) {
+    'autoEndEnabled', 'keepAwake', 'linkEnabled']) {
     if (typeof data[key] === 'boolean') settings[key] = data[key];
   }
   if (typeof data.alertRepeatMinutes === 'string') {
@@ -2030,6 +2180,7 @@ function saveSession() {
       runningSince: state.running ? Date.now() : null,
       currentType: state.currentType,
       lapNote: state.lapNote,
+      task: state.task,
       laps: state.laps,
       sums: state.sums,
       startedAt: state.startedAt,
@@ -2074,6 +2225,11 @@ function loadSession() {
   recomputeSums(); // 保存された合計は当てにせず、ラップから数え直す
   state.startedAt = Number(data.startedAt) || null;
   state.lapStartedAt = Number(data.lapStartedAt) || null;
+  // 受け取っていたタスク（link 側の通し番号は進まないので、ここから戻す）
+  if (data.task && typeof data.task === 'object') {
+    const title = String(data.task.title ?? '').trim();
+    if (title) state.task = { id: String(data.task.id ?? '').trim(), title };
+  }
 
   // 閉じている間も動いていたものとして、経過を足してから再開する
   if (data.running && Number.isFinite(data.runningSince)) {
@@ -2313,6 +2469,7 @@ function init() {
   bindToggle('auto-start-enabled', 'autoStartEnabled', resetAutoSchedule);
   bindToggle('auto-end-enabled', 'autoEndEnabled', resetAutoSchedule);
   bindToggle('keep-awake', 'keepAwake', applyKeepAwake);
+  bindToggle('link-enabled', 'linkEnabled', onLinkToggled);
 
   // ボタンとプロファイル（ボタンごとの通知の分は renderMinutes が受け持つ）
   $('profile-add').addEventListener('click', () => {
@@ -2377,9 +2534,17 @@ function init() {
     }
   });
 
+  /* 同じオリジンの別タブが localStorage を書くと storage が飛んでくるので、
+   * 押した瞬間に効く。時計の方は、イベントが届かない場合の受け皿。 */
+  window.addEventListener('storage', (event) => {
+    if (event.key === LINK_KEY) pollLink();
+  });
+
   resetAlert();
   refresh();
   applyKeepAwake();
+  pollLink(); // 開く前に置かれていたタスクを拾う（ラップは切らない）
+  setInterval(pollLink, LINK_POLL_MS);
   setInterval(tick, TICK_MS);
   setInterval(saveSession, 15000); // 不意にタブが閉じても記録を残す
 
