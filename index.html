@@ -183,16 +183,6 @@
 
     <div class="block">
       <div class="row row-left">
-        <button type="button" class="toggle" id="link-enabled">タスク連携</button>
-        <span id="link-hint" class="caption caption-small"></span>
-      </div>
-      <p class="note">同じブラウザで開いた Dandory（タスク管理）から進行中のタスクを受け取り、確定したラップを実績として返します。切っている間は読みにも書きにも行きません。</p>
-    </div>
-
-    <hr class="rule">
-
-    <div class="block">
-      <div class="row row-left">
         <button type="button" class="toggle" id="keep-awake">画面を消さない</button>
         <span id="keep-awake-hint" class="caption caption-small"></span>
       </div>
@@ -390,20 +380,6 @@
       <hr class="rule">
 
       <div class="block">
-        <p class="caption">タスク連携（Dandory）</p>
-        <p class="help-text">タスク管理の Dandory と組み合わせると、どのタスクに何時間使ったかがひとりでに貯まります。Dandory が無くても、こちらの動きは何も変わりません。設定タブの「タスク連携」で切れます。</p>
-        <ul class="help-list">
-          <li>Dandory でタスクを選ぶと、その名前が大きい時計の下に出ます。メモが空なら、そこにもタスク名が入ります（書きかけのメモは上書きしません）。</li>
-          <li>Dandory で「このタスクで開始」を押すと、こちらのラップが切り替わります。</li>
-          <li>確定したラップは実績として返り、Dandory のタスクの累計時間になります。休憩側のラップは、タスクに使った時間ではないので積まれません。</li>
-          <li>開く順番はどちらが先でも構いません。あとから開いたときは、そのとき選ばれているタスクを受け取るだけで、ラップは切りません。</li>
-        </ul>
-        <p class="help-note">つながるのは<strong>同じブラウザの同じオリジン</strong>に置いた Dandory だけです（どちらも <code class="help-code">localStorage</code> を使うため）。あとから手直ししたラップは返らないので、ずれたぶんは Dandory 側の「累計を直す」で合わせてください。</p>
-      </div>
-
-      <hr class="rule">
-
-      <div class="block">
         <p class="caption">保存先とプライバシー</p>
         <ul class="help-list">
           <li>記録も設定もこのブラウザの中（localStorage）だけに残ります。読み込んだ通知音の音声ファイルだけは、大きさの都合で同じブラウザの IndexedDB に置きます。サーバーへは何も送りません。</li>
@@ -437,25 +413,12 @@
     <div class="help">
       <div class="block log-entry">
         <div class="log-head">
-          <p class="log-version">v1.7</p>
+          <p class="log-version">v1.6</p>
           <time class="log-date caption caption-small" datetime="2026-08-31">2026-08-31</time>
         </div>
         <ul class="log-list">
           <li><span class="log-tag tag-change">変更</span>「ミニ表示」を画面の下からタブの右端へ移しました。設定や使い方を見ている間も切り替えられます。</li>
           <li><span class="log-tag tag-change">変更</span>画面の中で縮小したときの「通常表示」を、「ミニ表示」を押した場所に出すようにしました。押した場所からカーソルを動かさずに戻せます。</li>
-        </ul>
-      </div>
-
-      <hr class="rule">
-
-      <div class="block log-entry">
-        <div class="log-head">
-          <p class="log-version">v1.6</p>
-          <time class="log-date caption caption-small" datetime="2026-08-18">2026-08-18</time>
-        </div>
-        <ul class="log-list">
-          <li><span class="log-tag tag-add">追加</span>タスク管理の Dandory と連携できるようにしました。進行中のタスクを受け取ってラップに結び付け、確定したラップを実績として返します。設定タブの「タスク連携」で切れます。</li>
-          <li><span class="log-tag tag-add">追加</span>受け取っている間だけ、大きい時計の下に「タスク」の行を出すようにしました。メモが空のときは、そこにタスク名が入ります。</li>
         </ul>
       </div>
 

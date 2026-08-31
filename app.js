@@ -172,7 +172,7 @@ const UI_IDS = [
   'auto-end-hint', 'keep-awake-hint', 'toast', 'key-hint', 'lap-buttons',
   'sheet-types', 'minutes', 'profiles', 'type-rows', 'type-count',
   'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
-  'mini-keys', 'task-row', 'task-name', 'link-hint', 'compact', 'mini-back',
+  'mini-keys', 'task-row', 'task-name', 'compact', 'mini-back',
 ];
 
 function cacheUi() {
@@ -2502,7 +2502,8 @@ function init() {
   bindToggle('auto-start-enabled', 'autoStartEnabled', resetAutoSchedule);
   bindToggle('auto-end-enabled', 'autoEndEnabled', resetAutoSchedule);
   bindToggle('keep-awake', 'keepAwake', applyKeepAwake);
-  bindToggle('link-enabled', 'linkEnabled', onLinkToggled);
+  /* タスク連携の入り切りは、まだ画面に出していない（相手のアプリが無いため）。
+   * 受け渡しの中身は残してあるので、設定タブに #link-enabled を戻せば効く */
 
   // ボタンとプロファイル（ボタンごとの通知の分は renderMinutes が受け持つ）
   $('profile-add').addEventListener('click', () => {
