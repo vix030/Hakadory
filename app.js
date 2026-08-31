@@ -172,7 +172,7 @@ const UI_IDS = [
   'auto-end-hint', 'keep-awake-hint', 'toast', 'key-hint', 'lap-buttons',
   'sheet-types', 'minutes', 'profiles', 'type-rows', 'type-count',
   'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
-  'mini-keys', 'task-row', 'task-name', 'link-hint',
+  'mini-keys', 'task-row', 'task-name', 'link-hint', 'compact', 'mini-back',
 ];
 
 function cacheUi() {
@@ -1895,17 +1895,48 @@ function applyThemeTo(root) {
   root.dataset.theme = settings.theme;
 }
 
+/** 部品の左上（画面の中の座標）。出ていない、または測れないときは null。 */
+function cornerOf(element) {
+  if (!element || typeof element.getBoundingClientRect !== 'function') return null;
+  const box = element.getBoundingClientRect();
+  if (box.width === 0 && box.height === 0) return null;
+  return { x: box.left, y: box.top };
+}
+
+/* 画面の中で縮小したときだけ、「通常表示」が corner（押した「ミニ表示」の
+ * 左上）に重なるようミニ表示を置く。押した場所からカーソルを動かさずに
+ * 戻せるようにするため。
+ *
+ * 小窓（ピクチャーインピクチャー）はブラウザが位置を決めるので、そちらは
+ * そろえられない。 */
+function alignMiniTo(corner) {
+  if (corner === null) return;
+  const mini = ui.mini;
+  mini.style.left = '0px';           // いったん左上に置いてから差を測る
+  mini.style.top = '0px';
+  const back = cornerOf(ui.miniBack);
+  if (back === null) return;
+  const box = mini.getBoundingClientRect();
+  /* はみ出すと押せなくなるので画面の中へ寄せる。寄せた分だけ位置はずれる */
+  const fit = (value, size, room) => Math.min(Math.max(value, 0),
+    Math.max(0, room - size));
+  mini.style.left = `${Math.round(fit(corner.x - back.x, box.width, window.innerWidth))}px`;
+  mini.style.top = `${Math.round(fit(corner.y - back.y, box.height, window.innerHeight))}px`;
+}
+
 /** ミニ表示を出す。対応していれば常に最前面の小窓、無理なら画面内で縮める。 */
 async function openMini() {
   if (pipWindow !== null || document.body.classList.contains('inline-mini')) {
     closeMini();
     return;
   }
+  const corner = cornerOf(ui.compact); // 画面が変わる前に控えておく
   const mini = ui.mini;
   mini.hidden = false;
 
   if (!('documentPictureInPicture' in window)) {
     document.body.classList.add('inline-mini');
+    alignMiniTo(corner);
     toast('このブラウザは小窓表示に対応していないため、画面内で縮小しました。'
       + '（Chrome / Edge では常に最前面の小窓になります）');
     return;
@@ -1937,6 +1968,8 @@ function restoreMini() {
   const mini = ui.mini;
   if (mini.ownerDocument !== document) document.body.appendChild(mini);
   mini.hidden = true;
+  mini.style.left = '';   // 次に小窓で出すときに引きずらない
+  mini.style.top = '';
   document.body.classList.remove('inline-mini');
   pipWindow = null;
 }

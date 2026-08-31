@@ -115,9 +115,14 @@ body {
 
 .tabs {
   display: flex;
+  align-items: baseline;
   gap: 16px;
   padding-top: 14px;
 }
+
+/* 「ミニ表示」はタブの右端。画面の中で縮小したときの「通常表示」は、
+ * ここに重なるよう app.js が位置を決める */
+.tabs #compact { margin-left: auto; }
 
 .row {
   display: flex;
@@ -557,7 +562,7 @@ a:focus-visible,
 .foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding-bottom: 14px;
 }
 
@@ -606,9 +611,12 @@ body.pip {
 
 body.pip #mini { padding: 5px 10px; }
 
-/* 画面内ミニ表示（ピクチャーインピクチャー非対応のとき） */
-body.inline-mini { display: flex; align-items: flex-start; }
+/* 画面内ミニ表示（ピクチャーインピクチャー非対応のとき）。
+ * 左上は app.js が決める（「通常表示」が「ミニ表示」を押した場所に来るよう
+ * 寄せる）。決める前でも画面の左上に出るよう、既定値を入れておく */
+body.inline-mini { display: block; }
 body.inline-mini #full { display: none; }
+body.inline-mini #mini { position: fixed; top: 0; left: 0; }
 
 /* ------------------------------------------------------------------ 通知 */
 

@@ -17,6 +17,32 @@
       ui.miniKeys.children.length);
     ok('sheet types', ui.sheetTypes.children.length === 3);
 
+    /* --- 切り替えボタン（タブの右端 / 押した場所に戻る） ---
+     * 小窓（ピクチャーインピクチャー）は headless では開けないので、
+     * 画面の中で縮める側だけを直に呼んで確かめる。 */
+    const compact = document.getElementById('compact');
+    const tabs = compact.parentElement;
+    ok('compact sits in the tab row', tabs.classList.contains('tabs'),
+      tabs.className);
+    ok('compact is the rightmost', tabs.lastElementChild === compact,
+      tabs.lastElementChild.id);
+    ok('compact reaches the right edge',
+      Math.abs(compact.getBoundingClientRect().right
+        - tabs.getBoundingClientRect().right) < 1,
+      [compact.getBoundingClientRect().right, tabs.getBoundingClientRect().right]);
+
+    const want = cornerOf(compact);
+    ui.mini.hidden = false;
+    document.body.classList.add('inline-mini');
+    alignMiniTo(want);
+    const got = cornerOf(ui.miniBack);
+    ok('back button lands on the compact button', got !== null
+      && Math.abs(got.x - want.x) < 1 && Math.abs(got.y - want.y) < 1,
+      [want, got]);
+    restoreMini();
+    ok('mini put away again', ui.mini.hidden === true
+      && document.body.classList.contains('inline-mini') === false);
+
     // --- 単キー（既定の 3 つが残っている間は W / B / L も効く） ---
     let keys = lapKeys();
     ok('digit keys', keys['1'] === 'work' && keys['3'] === 'long_break', keys);
