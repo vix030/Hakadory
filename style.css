@@ -477,6 +477,9 @@ a:focus-visible,
 
 .help-list li + li { margin-top: 5px; }
 
+/* 入れ子の箇条書き。見出しの行と中身を近づけて、段の差を出す */
+.help-list .help-list { margin-top: 4px; }
+
 .help-terms,
 .help-keys {
   display: grid;
