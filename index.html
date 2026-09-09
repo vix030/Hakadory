@@ -20,8 +20,8 @@
     <button type="button" class="choice" data-tab="settings">設定</button>
     <button type="button" class="choice" data-tab="help">使い方</button>
     <button type="button" class="choice" data-tab="log">更新履歴</button>
-    <!-- ミニ表示への切り替えは右上。画面の中で縮小したときの
-         「通常表示」をここに重ねる（位置合わせは app.js） -->
+    <!-- ミニ表示への切り替えは右上。小窓を出せないブラウザで画面の中に
+         縮めるときは、「通常表示」がここに重なるよう app.js が寄せる -->
     <button type="button" class="text" id="compact">ミニ表示</button>
   </div>
   <hr class="rule">
@@ -29,7 +29,11 @@
   <!-- タイマータブ -->
   <section id="page-timer" class="page">
     <div class="block">
-      <p class="caption">総時間</p>
+      <div class="row">
+        <p class="caption">総時間</p>
+        <!-- 押し忘れ・止め忘れを直す入口。総時間そのものを動かすのでここに置く -->
+        <button type="button" class="text" id="span-edit">時刻を直す</button>
+      </div>
       <p id="total" class="clock clock-total">0:00:00</p>
     </div>
 
@@ -178,6 +182,17 @@
     <hr class="rule">
 
     <div class="block">
+      <div class="row">
+        <p class="caption">書き出し先</p>
+        <span>
+          <button type="button" class="text" id="export-dir-pick">選ぶ</button>
+          <button type="button" class="text" id="export-dir-clear" hidden>解除</button>
+        </span>
+      </div>
+      <p class="note" id="export-dir-hint">（書き出すたびにダウンロードします）</p>
+    </div>
+
+    <div class="block">
       <div class="row row-left">
         <button type="button" class="toggle" id="keep-awake">画面を消さない</button>
         <span id="keep-awake-hint" class="caption caption-small"></span>
@@ -215,7 +230,7 @@
           </li>
           <li>持ち出し
             <ul class="help-list">
-              <li><code class="help-code">.md</code> に書き出せます</li>
+              <li><code class="help-code">.md</code> に書き出せます。設定タブの「書き出し先」でフォルダを決めておくと、ダウンロードではなくそこへ直接保存します（Chrome / Edge のみ）</li>
               <li>ブラウザの中の記録はリセットや履歴の削除で消えます。残したい日は書き出してください</li>
             </ul>
           </li>
@@ -286,9 +301,24 @@
           <dd>1 つ上に畳みます。種別と開始時刻は前のものになります。</dd>
           <dt>次のラップと結合</dt>
           <dd>1 つ下に畳みます。押し直しでできた短いラップは、これで消せます。</dd>
+          <dt>◯分 で分ける</dt>
+          <dd>1 本を 2 本に分けます。切り替えを押し忘れて 2 本ぶんの長さになったラップ用です。前半と残りの長さがボタンに出ます。</dd>
         </dl>
         <ul class="help-list">
           <li>進行中のラップは、大きい時計の上の見出しを押すと同じ画面が開きます。ラップを切らずに種別を直せます。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block">
+        <p class="caption">計測の時刻を直す</p>
+        <p class="help-text">「開始」の押し忘れ・止め忘れは、総時間の右の「時刻を直す」で直します。</p>
+        <ul class="help-list">
+          <li>開始を早めた分は<b>先頭のラップ</b>が、終了を延ばした分は<b>進行中のラップ</b>が伸びます。確定したラップは動きません。</li>
+          <li>結合や分割と違い、<b>総時間そのものが変わります</b>。そのためリセットと同じで元に戻せません（時刻は打ち直せば直ります）。</li>
+          <li>計測中は終わりが動き続けるので、終了は一時停止してから直します。</li>
+          <li>打つのは時と分だけ。日付はいちばん近い日を選ぶので、日をまたいだ計測でもそのまま打てます。</li>
         </ul>
       </div>
 
@@ -300,7 +330,7 @@
         <ul class="help-list">
           <li>確定・種別の変更・結合・メモのどれでも、遡って何度でも戻せます。</li>
           <li>戻しても計測は止まらず、総時間も変わりません。</li>
-          <li><b>「リセット」だけは戻せません。</b>消す前に <code class="help-code">.md</code> に書き出してください。</li>
+          <li><b>「リセット」と「時刻を直す」だけは戻せません。</b>消す前に <code class="help-code">.md</code> に書き出してください。</li>
         </ul>
       </div>
 
@@ -369,7 +399,7 @@
         <ul class="help-list">
           <li>右上の「ミニ表示」または <kbd class="help-code">M</kbd> で切り替わります。Chrome / Edge では他のウィンドウの手前に出る小窓になります。</li>
           <li>小窓からも開始・一時停止と種別の切り替えができます。</li>
-          <li>非対応のブラウザでは画面の中で縮小します。「通常表示」は「ミニ表示」を押した場所に出るので、カーソルを動かさずに押し返せます。</li>
+          <li>小窓を出せないブラウザでは、代わりに画面の中で縮小します。</li>
         </ul>
       </div>
 
@@ -421,12 +451,25 @@
     <div class="help">
       <div class="block log-entry">
         <div class="log-head">
+          <p class="log-version">v1.7</p>
+          <time class="log-date caption caption-small" datetime="2026-09-09">2026-09-09</time>
+        </div>
+        <ul class="log-list">
+          <li><span class="log-tag tag-add">追加</span>確定したラップを、1 分・2 分といった切りのいい時間で 2 本に分けられるようにしました。手直しの画面から、前半と残りの長さを見て選べます。</li>
+          <li><span class="log-tag tag-add">追加</span>総時間の右に「時刻を直す」を足しました。「開始」の押し忘れや止め忘れを、開始・終了の時刻を打ち直して直せます。ラップの結合や分割と違って総時間そのものが変わるため、リセットと同じで元には戻せません。</li>
+          <li><span class="log-tag tag-add">追加</span>設定タブに「書き出し先」を足しました。フォルダを決めておくと、ダウンロードではなくそこへ直接保存します。同じ名前があるときは末尾に -2、-3 と足すので上書きしません。フォルダを選べないブラウザでは、今までどおりダウンロードになります。</li>
+        </ul>
+      </div>
+
+      <hr class="rule">
+
+      <div class="block log-entry">
+        <div class="log-head">
           <p class="log-version">v1.6</p>
           <time class="log-date caption caption-small" datetime="2026-08-31">2026-08-31</time>
         </div>
         <ul class="log-list">
           <li><span class="log-tag tag-change">変更</span>「ミニ表示」を画面の下からタブの右端へ移しました。設定や使い方を見ている間も切り替えられます。</li>
-          <li><span class="log-tag tag-change">変更</span>画面の中で縮小したときの「通常表示」を、「ミニ表示」を押した場所に出すようにしました。押した場所からカーソルを動かさずに戻せます。</li>
         </ul>
       </div>
 
@@ -561,6 +604,9 @@
         <button type="button" class="text" id="note-save">保存</button>
       </div>
     </div>
+    <!-- 分ける位置は切りのいい時間だけ。app.js がそのラップに収まるものを並べる -->
+    <p class="sheet-note" id="split-note">切りのいい時間で 2 本に分ける（総時間は変わりません）</p>
+    <div class="sheet-merge" id="split-points"></div>
     <p class="sheet-note" id="merge-note">隣のラップと結合する（総時間は変わりません）</p>
     <div class="sheet-merge">
       <button type="button" class="text" id="merge-prev">前のラップと結合</button>
@@ -572,6 +618,26 @@
         <button type="button" class="text" id="redo">やり直す</button>
       </span>
       <button type="button" class="text" id="lap-sheet-close">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 計測の始まり・終わりを直す ------------------------------------------ -->
+<div id="span-sheet" class="sheet" hidden>
+  <div class="sheet-back" id="span-sheet-back"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="span-sheet-title">
+    <p id="span-sheet-title" class="caption tinted">時刻を直す</p>
+    <p class="sheet-note">「開始」の押し忘れ・止め忘れを直します。総時間はここで変えた分だけ増減します。</p>
+    <div class="span-row">
+      <label class="caption caption-small" for="span-start">開始</label>
+      <input class="field field-time" id="span-start" inputmode="numeric" placeholder="9:00">
+      <label class="caption caption-small" for="span-end">終了</label>
+      <input class="field field-time" id="span-end" inputmode="numeric" placeholder="18:00">
+    </div>
+    <p class="help-note" id="span-hint"></p>
+    <div class="sheet-foot">
+      <button type="button" class="text" id="span-cancel">取消</button>
+      <button type="button" class="text" id="span-save">直す</button>
     </div>
   </div>
 </div>

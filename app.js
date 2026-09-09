@@ -159,6 +159,8 @@ const UI_IDS = [
   'sum-work-head', 'sum-break-head', 'start', 'lap-rows', 'auto-start-hint',
   'auto-end-hint', 'keep-awake-hint', 'toast', 'key-hint', 'lap-buttons',
   'sheet-types', 'minutes', 'profiles', 'type-rows', 'type-count',
+  'split-points', 'split-note', 'span-start', 'span-end', 'span-hint',
+  'export-dir-hint', 'export-dir-pick', 'export-dir-clear',
   'mini', 'mini-total', 'mini-lap', 'mini-hint', 'mini-type', 'mini-start',
   'mini-keys', 'compact', 'mini-back',
 ];
@@ -706,6 +708,40 @@ function mergeTargetLabel(index, direction) {
   return `進行中・${typeLabel(state.currentType)}`;
 }
 
+/* 分けられる位置は切りのいい時間だけにする。秒で指定させると、押し忘れた
+ * 時刻を思い出せない限り決められないため。 */
+const SPLIT_MINUTES = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+const MIN_SPLIT_REST = 1;   // 分けた残りがこれより短くなる点は出さない（秒）
+
+/** そのラップを分けられる、切りのいい時間の一覧（秒）。返すのは前半の長さ。 */
+function splitPoints(duration) {
+  return SPLIT_MINUTES.map((minutes) => minutes * 60)
+    .filter((seconds) => seconds + MIN_SPLIT_REST <= duration);
+}
+
+function canSplitLap(index) {
+  return Boolean(state.laps[index]) && splitPoints(state.laps[index].duration).length > 0;
+}
+
+/** 確定ラップを、頭から seconds のところで 2 本に分ける。
+ *
+ * 分けた 2 本はどちらも元の種別のまま、メモは前半に残る。結合と同じで
+ * 総時間は変わらず、時間は後ろのラップに移るだけ。
+ */
+function splitLap(index, seconds) {
+  const entry = state.laps[index];
+  if (!entry || !splitPoints(entry.duration).includes(seconds)) return false;
+  pushUndo();
+  const border = entry.startedAt === null ? null : entry.startedAt + seconds * 1000;
+  const rest = { ...entry, duration: entry.duration - seconds,
+    startedAt: border, note: '' };
+  entry.duration = seconds;
+  entry.endedAt = border;
+  state.laps.splice(index + 1, 0, rest);
+  afterLapEdit(false);
+  return true;
+}
+
 /** 確定ラップを隣のラップへ畳み込む。総時間は変わらない。
  *
  * 種別と時刻は畳み込み先に合わせる。末尾のラップを 'next' で畳むと、
@@ -752,6 +788,116 @@ function mergeCurrentIntoPrev() {
   state.lapNote = joinNotes(entry.note, state.lapNote);
   afterLapEdit(true);
   return true;
+}
+
+// --------------------------------------------- 計測の始まり・終わりを直す
+//
+// ラップの手直し（結合・分割）と違い、この 2 つは総時間そのものを変える。
+// 「開始」を押し忘れた分を足したり、止め忘れた分を削ったりするため。
+// 総時間と開始時刻までは控えていないので、リセットと同じで戻せない。
+
+/** reference（ミリ秒）にいちばん近い、その時と分の瞬間を返す。
+ *
+ * 日をまたいだ計測でも、打った時と分だけから日付を決められるようにする。
+ * 0:10 に始めた記録の開始を 23:50 に直すなら、同じ日の 23:50（23 時間 40 分
+ * あと）ではなく前の日の 23:50（20 分まえ）を指す。
+ */
+function nearestTimeOfDay(reference, hour, minute) {
+  const base = new Date(reference);
+  base.setHours(hour, minute, 0, 0);
+  return [-1, 0, 1]
+    .map((offset) => base.getTime() + offset * 86400000)
+    .reduce((best, moment) => (Math.abs(moment - reference)
+      < Math.abs(best - reference) ? moment : best));
+}
+
+/** 計測の始まりの時刻（ミリ秒）。まだ何も測っていなければ null。 */
+const measureStart = () => state.startedAt;
+
+/** 計測の終わりの時刻（ミリ秒）。計測中は「いま」なので呼ぶたびに進む。 */
+function measureEnd() {
+  if (state.lapStartedAt === null) return null;
+  return state.lapStartedAt + lapElapsed() * 1000;
+}
+
+/** 先頭のラップの長さ。確定ラップが無ければ進行中のラップを見る。 */
+const firstSpan = () => (state.laps.length ? state.laps[0].duration : lapElapsed());
+
+/** 計測の長さを seconds だけ伸ばす（負なら縮める）。
+ *
+ * atStart なら先頭のラップに、そうでなければ進行中のラップに足す。総時間も
+ * 同じだけ動かし、「確定ラップの合計 + 進行中 = 総時間」を保つ。
+ */
+function shiftMeasure(seconds, atStart) {
+  if (atStart && state.laps.length) state.laps[0].duration += seconds;
+  else state.lapBase += seconds;
+  state.totalBase += seconds;
+  // 総時間と開始時刻は控えていないので、ここまでの控えは捨てる
+  undoStack.length = 0;
+  redoStack.length = 0;
+  afterLapEdit(true);
+}
+
+/** 計測の始まりを target（ミリ秒）にそろえる。
+ *
+ * 早める分は先頭のラップが伸び、遅らせる分は縮む。総時間もその分だけ動く。
+ * 縮められるのは先頭のラップの長さまで。
+ */
+function setMeasureStart(target) {
+  if (state.startedAt === null || target === null) return false;
+  const seconds = (state.startedAt - target) / 1000;
+  if (seconds === 0) return false;
+  if (-seconds > firstSpan()) return false;   // 先頭のラップより後ろへは動かせない
+  state.startedAt = target;
+  if (state.laps.length) state.laps[0].startedAt = target;
+  else state.lapStartedAt = target;
+  shiftMeasure(seconds, true);
+  return true;
+}
+
+/** 計測の終わりを target（ミリ秒）にそろえる。
+ *
+ * 進行中のラップだけが伸び縮みする。計測中は終わりが動き続けるので断る。
+ */
+function setMeasureEnd(target) {
+  if (state.running || state.lapStartedAt === null || target === null) return false;
+  const seconds = (target - measureEnd()) / 1000;
+  if (seconds === 0) return false;
+  if (-seconds > lapElapsed()) return false;  // 進行中のラップより前へは詰められない
+  shiftMeasure(seconds, false);
+  return true;
+}
+
+/** 画面に打たれた時刻を当てる。直せなかった理由の一覧を返す。
+ *
+ * 始まりを早めても終わりは動かない（伸びるのは先頭のラップだけ）ので、
+ * 当てる順で結果は変わらない。画面と同じ並びにして、理由も同じ順で出す。
+ * 片方が駄目でも、もう片方は当てる。
+ */
+function applySpan(startText, endText) {
+  const problems = [];
+  const start = parseTimeOfDay(startText);
+  if (start === null) {
+    problems.push('開始の時刻が読めません。');
+  } else {
+    const target = nearestTimeOfDay(state.startedAt, start[0], start[1]);
+    if (target !== state.startedAt && !setMeasureStart(target)) {
+      problems.push('開始は先頭のラップより後ろへは動かせません。');
+    }
+  }
+  const end = parseTimeOfDay(endText);
+  const nowEnd = measureEnd();
+  if (end === null) {
+    problems.push('終了の時刻が読めません。');
+  } else if (state.running) {
+    problems.push('終了は一時停止してから直します。');
+  } else if (nowEnd !== null) {
+    const target = nearestTimeOfDay(nowEnd, end[0], end[1]);
+    if (target !== nowEnd && !setMeasureEnd(target)) {
+      problems.push('終了は進行中のラップより前には詰められません。');
+    }
+  }
+  return problems;
 }
 
 // ------------------------------------------------- 元に戻す / やり直す
@@ -982,6 +1128,11 @@ function playSound() {
 const SOUND_DB = 'Hakadory';
 const SOUND_STORE = 'sound';
 const SOUND_KEY = 'custom';
+/* 書き出し先のフォルダは localStorage に入らない（文字列にできない）ので、
+ * 音声と同じ IndexedDB に別の置き場所を作って持つ。 */
+const HANDLE_STORE = 'handles';
+const EXPORT_DIR_KEY = 'exportDir';
+const DB_VERSION = 2;   // handles を足したときに 1 から上げた
 
 let customAudio = null;   // 読み込み済みの <audio>。未読み込みなら null
 let customBlob = null;    // その実体。展開し直すときに要る
@@ -995,19 +1146,138 @@ function openSoundDb() {
       reject(new Error('IndexedDB がない'));
       return;
     }
-    const request = indexedDB.open(SOUND_DB, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(SOUND_STORE);
+    const request = indexedDB.open(SOUND_DB, DB_VERSION);
+    request.onupgradeneeded = () => {
+      // 前の版から上げるときは、足りないものだけ作る（音声は消さない）
+      const db = request.result;
+      for (const name of [SOUND_STORE, HANDLE_STORE]) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
+      }
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-function soundDbRequest(mode, run) {
+function dbRequest(store, mode, run) {
   return openSoundDb().then((db) => new Promise((resolve, reject) => {
-    const request = run(db.transaction(SOUND_STORE, mode).objectStore(SOUND_STORE));
+    const request = run(db.transaction(store, mode).objectStore(store));
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   }));
+}
+
+const soundDbRequest = (mode, run) => dbRequest(SOUND_STORE, mode, run);
+
+// ------------------------------------------------------------ 書き出し先
+//
+// フォルダを決めておくと、書き出しで場所を尋ねずにそこへ保存する。
+// フォルダを掴めるのは File System Access API のあるブラウザ（Chrome / Edge）
+// だけなので、無いブラウザは今までどおりダウンロードにする。
+
+let exportDir = null;   // FileSystemDirectoryHandle。未指定なら null
+
+const canPickFolder = () => typeof window.showDirectoryPicker === 'function';
+
+/** 決めてあるフォルダを読み直す。使えなければ null のままにする。 */
+async function loadExportDir() {
+  if (canPickFolder()) {
+    try {
+      const handle = await dbRequest(HANDLE_STORE, 'readonly',
+        (store) => store.get(EXPORT_DIR_KEY));
+      if (handle && typeof handle.getFileHandle === 'function') exportDir = handle;
+    } catch (error) {
+      exportDir = null;   // 使えない環境ではダウンロードで動かす
+    }
+  }
+  renderExportDir();
+}
+
+function renderExportDir() {
+  const hint = ui.exportDirHint;
+  const pick = ui.exportDirPick;
+  const clear = ui.exportDirClear;
+  if (!canPickFolder()) {
+    hint.textContent = 'このブラウザではフォルダを指定できないため、'
+      + '書き出しはダウンロードになります（Chrome / Edge なら指定できます）。';
+    pick.hidden = true;
+    clear.hidden = true;
+    return;
+  }
+  pick.hidden = false;
+  clear.hidden = exportDir === null;
+  hint.textContent = exportDir === null
+    ? '（書き出すたびにダウンロードします）'
+    : `${exportDir.name} へ保存します`;
+}
+
+async function pickExportDir() {
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  } catch (error) {
+    return;   // 「キャンセル」を押した
+  }
+  exportDir = handle;
+  try {
+    await dbRequest(HANDLE_STORE, 'readwrite',
+      (store) => store.put(handle, EXPORT_DIR_KEY));
+  } catch (error) {
+    // 覚えておけなくても、このタブを開いている間は使える
+    toast('書き出し先を覚えておけませんでした。次に開くと元に戻ります。');
+  }
+  renderExportDir();
+}
+
+async function clearExportDir() {
+  exportDir = null;
+  try {
+    await dbRequest(HANDLE_STORE, 'readwrite',
+      (store) => store.delete(EXPORT_DIR_KEY));
+  } catch (error) {
+    /* 消せなくても、この場では指定なしとして扱う */
+  }
+  renderExportDir();
+}
+
+/** 同じ名前が既にあれば、末尾に -2、-3 と足して空いている名前を返す。
+ *
+ * 名前が分どまりなので、同じ分に 2 回書き出すと前のものを黙って上書きして
+ * しまう。それを避けるため。
+ */
+async function freeFileName(dir, name) {
+  const dot = name.lastIndexOf('.');
+  const stem = dot < 0 ? name : name.slice(0, dot);
+  const ext = dot < 0 ? '' : name.slice(dot);
+  for (let number = 1; number < 1000; number += 1) {
+    const candidate = number === 1 ? name : `${stem}-${number}${ext}`;
+    try {
+      await dir.getFileHandle(candidate);
+    } catch (error) {
+      if (error.name === 'NotFoundError') return candidate;
+      throw error;
+    }
+  }
+  return `${stem}-${Date.now()}${ext}`;
+}
+
+/** 決めてあるフォルダへ書く。書けたらファイル名、駄目なら null。 */
+async function writeToExportDir(name, text) {
+  if (exportDir === null) return null;
+  try {
+    const mode = { mode: 'readwrite' };
+    let granted = await exportDir.queryPermission(mode);
+    if (granted !== 'granted') granted = await exportDir.requestPermission(mode);
+    if (granted !== 'granted') return null;
+    const free = await freeFileName(exportDir, name);
+    const file = await exportDir.getFileHandle(free, { create: true });
+    const writable = await file.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return free;
+  } catch (error) {
+    return null;   // フォルダを消した、権限を切った、など
+  }
 }
 
 /** 保存してある音声を <audio> に読み込む。無ければ何もしない。 */
@@ -1321,14 +1591,76 @@ function exportMarkdown() {
   const date = new Date();
   const name = `Hakadory_${date.getFullYear()}${pad2(date.getMonth() + 1)}`
     + `${pad2(date.getDate())}_${pad2(date.getHours())}${pad2(date.getMinutes())}.md`;
-  const blob = new Blob([buildMarkdown()], { type: 'text/markdown;charset=utf-8' });
+  const text = buildMarkdown();
+  if (exportDir !== null) {
+    writeToExportDir(name, text).then((written) => {
+      if (written !== null) {
+        toast(`${exportDir.name} に ${written} を保存しました。`);
+        return;
+      }
+      // 書けなかったら黙って諦めず、ダウンロードに落とす
+      download(name, text);
+      toast('書き出し先に保存できなかったので、ダウンロードにしました。');
+    });
+    return;
+  }
+  download(name, text);
+  toast(`${name} をダウンロードしました。`);
+}
+
+function download(name, text) {
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  toast(`${name} をダウンロードしました。`);
+}
+
+/** 切りのいい時間を「1分」「1時間30分」のように読める形にする。 */
+function formatSpan(seconds) {
+  const total = Math.floor(seconds / 60);
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (!hours) return `${minutes}分`;
+  return minutes ? `${hours}時間${minutes}分` : `${hours}時間`;
+}
+
+/** 入力欄に入れる「時:分」。.md 用の clockText は秒まで出すので別にする。 */
+const hourMinute = (stamp) => {
+  const date = new Date(stamp);
+  return `${date.getHours()}:${pad2(date.getMinutes())}`;
+};
+
+function openSpanSheet() {
+  if (state.startedAt === null) {
+    toast('まだ記録がありません。');
+    return;
+  }
+  const end = measureEnd();
+  ui.spanStart.value = hourMinute(state.startedAt);
+  ui.spanEnd.value = end === null ? '' : hourMinute(end);
+  ui.spanHint.textContent = state.running
+    ? '計測中は終わりが動き続けるので、「終了」は一時停止してから直します。'
+    : '';
+  $('span-sheet').hidden = false;
+  ui.spanStart.focus();
+}
+
+const closeSpanSheet = () => { $('span-sheet').hidden = true; };
+
+function saveSpanSheet() {
+  const problems = applySpan(ui.spanStart.value, ui.spanEnd.value);
+  if (problems.length) {
+    // 片方だけ当たったときに入力欄が嘘にならないよう、実態に戻す
+    const end = measureEnd();
+    ui.spanStart.value = hourMinute(state.startedAt);
+    ui.spanEnd.value = end === null ? '' : hourMinute(end);
+    ui.spanHint.textContent = problems.join('  ');
+    return;
+  }
+  closeSpanSheet();
 }
 
 let toastTimer = null;
@@ -1753,6 +2085,26 @@ function renderLapSheet() {
   }
   // 結合できる相手が居ないときは見出しごと引っ込める
   $('merge-note').hidden = prev.hidden && next.hidden;
+
+  /* 分割は確定したラップだけ。押す前に前半と残りの長さを見比べられるよう、
+   * ボタンの文字に両方を出す。 */
+  const points = running ? [] : splitPoints(entry.duration);
+  ui.splitNote.hidden = points.length === 0;
+  ui.splitPoints.textContent = '';
+  for (const seconds of points) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'text';
+    button.textContent = `${formatSpan(seconds)} で分ける`
+      + `（${formatTime(seconds)} と ${formatTime(entry.duration - seconds)}）`;
+    const at = sheetIndex;
+    button.addEventListener('click', () => {
+      commitSheetNote();       // 書きかけのメモを先に残す（位置がずれるため）
+      splitLap(at, seconds);
+      closeLapSheet();
+    });
+    ui.splitPoints.appendChild(button);
+  }
 
   // 画面から元に戻せるようにする（スマートフォンには Ctrl+Z が無い）
   $('undo').disabled = !canUndo();
@@ -2310,6 +2662,12 @@ function init() {
     event.preventDefault();
     openLapSheet(null);
   });
+  ui.exportDirPick.addEventListener('click', pickExportDir);
+  ui.exportDirClear.addEventListener('click', clearExportDir);
+  $('span-edit').addEventListener('click', openSpanSheet);
+  $('span-cancel').addEventListener('click', closeSpanSheet);
+  $('span-sheet-back').addEventListener('click', closeSpanSheet);
+  $('span-save').addEventListener('click', saveSpanSheet);
   $('merge-prev').addEventListener('click', () => sheetMerge('prev'));
   $('merge-next').addEventListener('click', () => sheetMerge('next'));
   $('undo').addEventListener('click', () => sheetHistory(undo));
@@ -2395,6 +2753,7 @@ function init() {
   bindVolume();
   buildSounds();
   loadCustomSound(); // 音声ファイルの読み込みを待たずに画面は出す
+  loadExportDir();   // 書き出し先も同じく、待たずに出す
   buildDays();
   document.addEventListener('keydown', onKeyDown);
   /* 音は最初の操作より前には出せない。最初に押されたところで用意しておくと、

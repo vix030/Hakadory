@@ -662,6 +662,15 @@ body.inline-mini #mini { position: fixed; top: 0; left: 0; }
   padding-top: 8px;
 }
 
+/* 「時刻を直す」の 2 つの入力欄。狭い画面では折り返す */
+.span-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 8px;
+}
+
 .sheet-merge {
   display: flex;
   flex-direction: column;

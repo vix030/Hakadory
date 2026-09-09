@@ -17,6 +17,81 @@
       ui.miniKeys.children.length);
     ok('sheet types', ui.sheetTypes.children.length === 3);
 
+    // --- 分割（app 版からの移植） ---
+    ok('no split point under a minute', splitPoints(59).length === 0, splitPoints(59));
+    ok('split points fit the lap', splitPoints(605).join(',') === '60,120,180,300,600',
+      splitPoints(605));
+    ok('cannot split a short lap', canSplitLap(0) === false);
+
+    // --- 日をまたいだ時刻（app 版と同じ規則） ---
+    const midnight = new Date(2026, 8, 9, 0, 10).getTime();
+    ok('picks the previous day',
+      nearestTimeOfDay(midnight, 23, 50) === new Date(2026, 8, 8, 23, 50).getTime());
+    ok('stays on the same day',
+      nearestTimeOfDay(midnight, 0, 30) === new Date(2026, 8, 9, 0, 30).getTime());
+    const evening = new Date(2026, 8, 8, 23, 50).getTime();
+    ok('crosses into the next day',
+      nearestTimeOfDay(evening, 0, 10) === new Date(2026, 8, 9, 0, 10).getTime());
+
+    // --- 計測の始まり・終わり ---
+    ok('no span before measuring', measureStart() === null && measureEnd() === null);
+    /* headless では実時間がほぼ進まず、lap() は 0 秒のラップを確定しない。
+     * 経過を直に積んで、確定ラップと進行中のラップがある状態を作る。 */
+    toggleRun();
+    state.lapBase += 1800;             // 先頭のラップは 30 分ぶん
+    state.totalBase += 1800;
+    lap(typeIds()[1]);                 // 1 本確定させる
+    state.lapBase += 600;              // 進行中のラップは 10 分ぶん
+    state.totalBase += 600;
+    toggleRun();                       // 止める（終わりを見るため）
+    const startedAt = measureStart();
+    const beforeTotal = totalElapsed();
+    const beforeFirst = state.laps[0].duration;
+    ok('start moves back', setMeasureStart(startedAt - 600000));
+    ok('first lap grew', Math.abs(state.laps[0].duration - (beforeFirst + 600)) < 0.01,
+      state.laps[0].duration);
+    ok('total grew', Math.abs(totalElapsed() - (beforeTotal + 600)) < 0.01);
+    ok('first lap follows the start', state.laps[0].startedAt === measureStart());
+    ok('undo cleared', canUndo() === false && canRedo() === false);
+    ok('cannot pass the first lap',
+      setMeasureStart(measureStart() + (state.laps[0].duration + 60) * 1000) === false);
+
+    const kept = state.laps.map((entry) => entry.duration).join(',');
+    const nowTotal = totalElapsed();
+    ok('end extends', setMeasureEnd(measureEnd() + 300000));
+    ok('total grew again', Math.abs(totalElapsed() - (nowTotal + 300)) < 0.01);
+    ok('confirmed laps untouched',
+      state.laps.map((entry) => entry.duration).join(',') === kept);
+    ok('cannot pass the running lap',
+      setMeasureEnd(measureEnd() - (lapElapsed() + 60) * 1000) === false);
+
+    toggleRun();
+    ok('no end while running', setMeasureEnd(measureEnd() + 60000) === false);
+    toggleRun();
+    ok('unreadable times are reported', applySpan('9:99', 'x').length === 2);
+
+    // 画面の入口（機能だけ残って画面から消えるのを防ぐ）
+    ok('span entry on the timer tab', document.getElementById('span-edit') !== null);
+    ok('split slot in the sheet', document.getElementById('split-points') !== null);
+
+    // --- 書き出し先 ---
+    // headless の Chrome には showDirectoryPicker があるので、選ぶ側が出る
+    ok('export dir row', document.getElementById('export-dir-hint') !== null);
+    ok('pick shown when supported',
+      canPickFolder() === !document.getElementById('export-dir-pick').hidden);
+    ok('clear hidden while unset', document.getElementById('export-dir-clear').hidden);
+    ok('hint says it asks each time',
+      ui.exportDirHint.textContent.includes('ダウンロード'),
+      ui.exportDirHint.textContent);
+
+    // ここで作った記録は後ろの検査に持ち越さない
+    const realConfirm = window.confirm;
+    window.confirm = () => true;
+    reset();
+    window.confirm = realConfirm;
+    ok('cleared for the next checks', state.laps.length === 0
+      && measureStart() === null && totalElapsed() === 0);
+
     /* --- 切り替えボタン（タブの右端 / 押した場所に戻る） ---
      * 小窓（ピクチャーインピクチャー）は headless では開けないので、
      * 画面の中で縮める側だけを直に呼んで確かめる。 */
