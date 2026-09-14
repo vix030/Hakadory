@@ -44,6 +44,20 @@
     state.lapBase += 600;              // 進行中のラップは 10 分ぶん
     state.totalBase += 600;
     toggleRun();                       // 止める（終わりを見るため）
+    /* 日本語が等幅フォントで出ていないか。等幅は日本語の字を持たず、混ざると
+     * 1 文字ずつ別の書体で埋められて読めなくなる。行ができたここで見る。 */
+    const MONO = /Cascadia|Consolas|Courier|SF Mono|monospace/;
+    for (const [name, selector] of [
+      ['lap type cell', '.laps td.col-type'],
+      ['lap note cell', '.laps td.col-note'],
+      ['lap heading', '.laps th.col-type'],
+      ['key label', '.help-keys dt'],
+    ]) {
+      const el = document.querySelector(selector);
+      const family = el === null ? '(なし)' : getComputedStyle(el).fontFamily;
+      ok(`${name} avoids the mono stack`, el !== null && !MONO.test(family), family);
+    }
+
     const startedAt = measureStart();
     const beforeTotal = totalElapsed();
     const beforeFirst = state.laps[0].duration;

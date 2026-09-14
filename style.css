@@ -316,10 +316,14 @@ a:focus-visible,
 .col-num { width: 5.4em; text-align: right; }
 .col-note { text-align: left; }
 .laps td.col-no { text-align: right; color: var(--dim); }
-.laps td.col-type { text-align: center; }
+.laps td.col-type {
+  text-align: center;
+  /* 種別は日本語。等幅は日本語の字を持たないので本文の書体で出す */
+  font-family: "Meiryo UI", "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+}
 .laps td.col-num { text-align: right; }
 
-/* メモは日本語の文章なので本文の書体で出し、入りきらない分は末尾を省く
+/* メモも種別と同じく日本語なので本文の書体。入りきらない分は末尾を省く
  * （全文は行にカーソルを載せると出る）。時間の列と地続きに見えないよう頭を空ける */
 .laps th.col-note { padding-left: 10px; }
 
@@ -486,7 +490,6 @@ a:focus-visible,
 
 .help-keys dt {
   color: var(--accent);
-  font-family: "Cascadia Mono", Consolas, "SF Mono", "Courier New", monospace;
 }
 
 .help-keys dd { margin: 0; }
