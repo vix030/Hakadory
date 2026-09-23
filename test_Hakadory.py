@@ -38,13 +38,21 @@ def test_required_files():
 
 
 def test_html_references_exist():
-    """href / src が指すローカルファイルが実在するか。"""
+    """href / src が指す先が実在するか。
+
+    ページ内の飛び先（#...）はファイルではないので、同じ index.html に
+    その id があるかで見る。
+    """
     html = read("index.html")
     targets = re.findall(r'(?:href|src)="([^"]+)"', html)
     assert targets, "no references found"
+    ids = html_ids()
     for target in targets:
         assert not target.startswith(("http:", "https:", "//")), \
             "外部ホストへの参照: %s" % target
+        if target.startswith("#"):
+            assert target[1:] in ids, "飛び先の id がない: %s" % target
+            continue
         assert os.path.isfile(os.path.join(HERE, target)), "missing asset: %s" % target
 
 
@@ -129,14 +137,15 @@ def test_js_ids_exist():
     for name in re.findall(r"'([^']+)'", cached.group(1)):
         assert name in ids, "UI_IDS の %s が index.html にない" % name
 
-    # 分単位の入力欄は種別ごとに min-<種別> という規則で引いている
-    for lap_type in ("work", "break", "long_break"):
-        assert "min-%s" % lap_type in ids, lap_type
-
 
 def test_data_attributes():
+    """index.html に直接書いてある印。実行時に生える分はここでは見ない。
+
+    ラップの種別はボタンごとの設定になったので、種別に紐づく印（data-lap /
+    data-lap-type）と分単位の入力欄（min-<種別>）は index.html に無く、
+    app.js が組み立てる。検査するなら DOM を立てる test/smoke.js 側。
+    """
     html = read("index.html")
-    assert set(re.findall(r'data-lap="([^"]+)"', html)) == {"work", "break", "long_break"}
     assert set(re.findall(r'data-theme="([^"]+)"', html)) == {"standard", "dark", "light"}
     assert set(re.findall(r'data-tab="([^"]+)"', html)) == {"timer", "settings", "help", "log"}
     ids = html_ids()
@@ -145,11 +154,14 @@ def test_data_attributes():
 
 
 def test_js_and_css_agree():
-    """JS が付け外しするクラスが CSS に定義されているか。"""
+    """JS が付け外しするクラスが CSS に定義されているか。
+
+    種別ごとの色クラス（type-work など）は無い。色はボタンごとの設定として
+    6 色の見本から選ぶので、JS はクラスではなく変数で塗る。
+    """
     css = read("style.css")
-    for name in ("type-work", "type-break", "type-long", "action-start",
-                 "action-pause", "is-selected", "is-on", "flash", "inline-mini",
-                 "pip"):
+    for name in ("action-start", "action-pause", "is-selected", "is-on",
+                 "flash", "inline-mini", "pip"):
         assert ".%s" % name in css, "CSS に .%s がない" % name
 
 
@@ -159,9 +171,7 @@ def test_lap_edit_ui():
     js = read("app.js")
     css = read("style.css")
 
-    # シートの種別ボタンは 3 種類そろえる
-    assert set(re.findall(r'data-lap-type="([^"]+)"', html)) == \
-        {"work", "break", "long_break"}
+    # シートの種別ボタンは app.js がプロファイルから組み立てるので、ここでは見ない
     # 行と進行中の見出しは、キーボードでも開ける
     assert 'id="lap-title"' in html and 'role="button"' in html
     assert 'tabindex="0"' in html
@@ -221,13 +231,18 @@ def test_lap_note():
 
 
 def test_theme_tokens():
-    """3 つの配色すべてで同じ変数がそろっているか（未定義の色を出さない）。"""
+    """3 つの配色すべてで同じ変数がそろっているか（未定義の色を出さない）。
+
+    値が var(--x) の別名は数えない。標準の側で 1 回書けば、指し先が配色ごとに
+    差し替わるぶん自動で付いてくる（--accent: var(--blue) など）。
+    """
     css = read("style.css")
     blocks = re.findall(r':root(?:\[data-theme="(\w+)"\])?\s*\{([^}]*)\}', css)
     tokens = {}
     for name, body in blocks:
         tokens.setdefault(name or "standard", set()).update(
-            re.findall(r"(--[\w-]+):", body))
+            found for found, value in re.findall(r"(--[\w-]+):\s*([^;]+);", body)
+            if not value.strip().startswith("var("))
     assert set(tokens) == {"standard", "dark", "light"}, set(tokens)
     base = tokens["standard"]
     assert len(base) >= 10, base
